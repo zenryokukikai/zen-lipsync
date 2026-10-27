@@ -1,0 +1,90 @@
+{
+  "name": "@zenryokukikai/zen-lipsync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ZEN-LipSync SDK: real-time photoreal lip-sync — browser (WebGPU) and Node (CPU). Avatar packs: github.com/zenryokukikai/zen-lipsync-avatars",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test test/*.test.mjs",
+    "prepare": "tsc -p tsconfig.json",
+    "build:native": "sh native/node/build.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@12.14.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./conversation": {
+      "types": "./dist/conversation/index.d.ts",
+      "browser": "./dist/conversation/index.js",
+      "default": "./dist/conversation/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "node": "./dist/node/index.js",
+      "default": "./dist/node/index.js"
+    },
+    "./tts": {
+      "types": "./dist/tts/index.d.ts",
+      "default": "./dist/tts/index.js"
+    },
+    "./tts/node": {
+      "types": "./dist/tts/node.d.ts",
+      "node": "./dist/tts/node.js",
+      "default": "./dist/tts/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "cpu/*.mjs",
+    "cpu/*.wasm",
+    "cpu/lip8w.c",
+    "cpu/lip8r.c",
+    "native/x86/lip8.c",
+    "native/node/*.c",
+    "native/node/build.sh",
+    "native/node/shim/**",
+    "prebuilds/**",
+    "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=26.12.1"
+  },
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": ">=18",
+    "zen-tts": "*"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "zen-tts": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zenryokukikai/zen-lipsync.git"
+  },
+  "homepage": "https://zenryokukikai.com"
+}

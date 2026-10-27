@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZEN-LipSync — real-time conversation sample</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #070B14; --surface: #0E1524; --raised: #141D31; --outline: #24304A;
+    --text: #E8EEF7; --muted: #9AA8BF; --primary: #3888B0; --primary-strong: #2A6F93; --bright: #85CFFA;
+    --warn: #FDB966; --danger: #FF9C9C;
+    --radius: 12px; --gap: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 "Hiragino Sans", "Noto Sans JP", system-ui, -apple-system, sans-serif; -webkit-text-size-adjust: 100%; }
+  main { max-width: 1040px; margin: 0 auto;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    display: grid; gap: var(--gap); }
+  header h1 { font-size: 18px; line-height: 1.4; margin: 0; font-weight: 700; letter-spacing: .01em; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  header code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--bright); }
+  .layout { display: grid; gap: var(--gap); }
+  @media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); align-items: start; } }
+
+  /* the avatar */
+  .stagewrap { display: grid; gap: 8px; }
+  #stage { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden;
+    background: #000; border: 1px solid var(--outline); display: grid; place-items: center; }
+  #stage .placeholder { color: var(--muted); font-size: 14px; text-align: center; padding: 16px; }
+  #state { color: var(--warn); font-size: 13px; min-height: 1.6em; margin: 0; }
+  #err { color: var(--danger); font-size: 13px; white-space: pre-wrap; margin: 0; }
+  #err:empty { display: none; }
+
+  /* panels */
+  .side { display: grid; gap: var(--gap); }
+  .card { background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .12em; margin: 0; }
+
+  button, select, input[type=text] { font: inherit; font-size: 16px; color: inherit; min-height: 48px; border-radius: 10px; }
+  button { padding: 0 16px; border: 1px solid var(--outline); background: var(--raised); cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+  button.primary:not(:disabled):hover { background: var(--primary-strong); }
+  #mic.on { background: #3a1820; border-color: #c25b6e; color: #ffd9e0; }
+  .controls { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 8px; }
+  .sendrow { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  input[type=text] { width: 100%; min-width: 0; padding: 0 14px; border: 1px solid var(--outline); background: var(--bg); }
+  input[type=text]::placeholder { color: #66748c; }
+
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 13px; color: var(--muted); }
+  select { width: 100%; padding: 0 40px 0 14px; border: 1px solid var(--outline); background-color: var(--bg);
+    -webkit-appearance: none; appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat; }
+  .settings { display: grid; gap: 12px; }
+  @media (min-width: 560px) and (max-width: 899px) { .settings { grid-template-columns: 1fr 1fr 1fr; } }
+  .note { font-size: 12px; color: var(--muted); margin: 0; }
+
+  /* numbers and log (closed by default) */
+  details { background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius); }
+  summary { cursor: pointer; padding: 0 16px; min-height: 48px; display: flex; align-items: center; justify-content: space-between;
+    color: var(--muted); font-size: 14px; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "開く"; font-size: 12px; color: var(--bright); }
+  details[open] summary::after { content: "閉じる"; }
+  .detailbody { padding: 0 16px 16px; display: grid; gap: 10px; }
+  #stats { font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+  #stats b { color: var(--bright); font-weight: 600; }
+  #log { font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); border: 1px solid var(--outline);
+    border-radius: 8px; padding: 10px; height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ZEN-LipSync — real-time conversation</h1>
+    <p><code>@zenryokukikai/zen-lipsync/conversation</code> のサンプル。mic → VAD → ASR → 返事（台本。LLM の代わり）→ ZEN-TTS（streaming）→ lip-sync をブラウザ内で実行します。音声・映像は外部に送りません。</p>
+  </header>
+
+  <div class="layout">
+    <section class="stagewrap">
+      <div id="stage"><div class="placeholder">「開始」でアバターと ZEN-TTS を読み込みます</div></div>
+      <p id="state"></p>
+      <p id="err"></p>
+    </section>
+
+    <div class="side">
+      <section class="card" aria-label="操作">
+        <div class="controls">
+          <button id="start" class="primary">開始</button>
+          <button id="mic" disabled>マイク</button>
+          <button id="stop" disabled>停止</button>
+        </div>
+        <div class="sendrow">
+          <input id="text" type="text" placeholder="テキストで送信（sendText）" enterkeyhint="send" disabled>
+          <button id="send" disabled>送る</button>
+        </div>
+      </section>
+
+      <section class="card" aria-label="設定">
+        <h2>SETTINGS</h2>
+        <div class="settings">
+          <div class="field">
+            <label for="avatarSel">avatar</label>
+            <select id="avatarSel"></select>
+          </div>
+          <div class="field">
+            <label for="voiceSel">voice（ZEN-TTS）</label>
+            <select id="voiceSel"></select>
+          </div>
+          <div class="field">
+            <label for="backendSel">TTS backend</label>
+            <select id="backendSel"></select>
+          </div>
+        </div>
+        <p class="note">変更するとページを再読み込みします。</p>
+      </section>
+
+      <details>
+        <summary>latency / log</summary>
+        <div class="detailbody">
+          <div id="stats">turns 0</div>
+          <pre id="log"></pre>
+        </div>
+      </details>
+    </div>
+  </div>
+</main>
+<script type="module" src="./conversation.js?v=1"></script>
+</body>
+</html>
