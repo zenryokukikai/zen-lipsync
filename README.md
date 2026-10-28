@@ -25,9 +25,9 @@
 | 全力 ハシロウ（ぜんりょく はしろう） | `hashiro` | hashiro-1.0 | 95 MB |
 | 全力 キッカ（ぜんりょく きっか） | `kikka` | kikka-1.0 | 56 MB |
 
-アバターパック（モデルと素材）は [zenryokukikai/zen-lipsync-avatars](https://github.com/zenryokukikai/zen-lipsync-avatars)。モデルはアバターごとに学習済みで、他の顔・映像には使えません。新しいアバターのモデル作成は全力機械（https://zenryokukikai.com ）へご依頼ください。
+アバターパック（モデルと素材）は [zenryokukikai/zen-lipsync-avatars](https://github.com/zenryokukikai/zen-lipsync-avatars )。モデルはアバターごとに学習済みで、他の顔・映像には使えません。新しいアバターのモデル作成は全力機械（https://zenryokukikai.com ）へご依頼ください。
 
-利用条件として、アプリ・サイト・作品の利用者が見つけられる場所に、クレジット「リップシンク：ZEN-LipSync（https://zenryokukikai.com）」を表示してください。URL はリンクにします（[LICENSE.md](LICENSE.md) 3 章）。
+利用条件として、アプリ・サイト・作品の利用者が見つけられる場所に、クレジット「リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」を表示してください。URL はリンクにします（[LICENSE.md](LICENSE.md) 3 章）。
 
 ## 関連リポジトリ
 
