@@ -9,8 +9,8 @@
 <table>
 <tr>
 <th>全力 マリン</th>
-<th>全力 キッカ</th>
 <th>全力 ハシロウ</th>
+<th>全力 キッカ</th>
 </tr>
 <tr>
   https://github.com/user-attachments/assets/7f2fbd5a-8f02-4261-b935-5bfe649ffc43
