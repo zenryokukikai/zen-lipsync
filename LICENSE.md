@@ -27,8 +27,8 @@ THIRD_PARTY_NOTICES.md に挙げた第三者の部分は、それぞれのライ
 
 1. **クレジットの表示（必須）**
    本ソフトウェア、またはそれで作った映像を使うアプリ・Web サイト・サービス・作品では、利用者が普通に見つけられる場所に、次のクレジットを表示してください。クレジット中の URL はリンクにしてください（リンクを埋め込めない媒体では URL を文字で書けば足ります）。
-   - クレジット：「リップシンク：ZEN-LipSync（https://zenryokukikai.com）」、または英語の「Lip-sync: ZEN-LipSync (https://zenryokukikai.com)」
-   - ZEN-TTS と併用する場合は、1 行にまとめて構いません（例：「音声合成：ZEN-TTS / リップシンク：ZEN-LipSync（https://zenryokukikai.com）」）。
+   - クレジット：「リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」、または英語の「Lip-sync: ZEN-LipSync (https://zenryokukikai.com)」
+   - ZEN-TTS と併用する場合は、1 行にまとめて構いません（例：「音声合成：ZEN-TTS / リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」）。
    - 表示する場所の例：画面、クレジット、「このアプリについて」のページ、説明欄、概要欄
    - 動画だけの作品：説明欄や概要欄など、作品と一緒に示される場所に表示してください。
 

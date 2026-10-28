@@ -203,7 +203,7 @@ const live = streamText(av, nodeTts, '配信のテストです。', { format: 'j
 
 - 文章は「。！？」と改行で区切り、1 文ずつ ZEN-TTS で作ります。できた文から順に渡すので、最初の文が流れている間に次の文を作ります。文と文の間にすき間はできません。
 - `speakText`／`renderText`／`streamText` の最後の引数には、ZEN-TTS の `speak()` のオプション（`emotion`、`change`、`strength`、`dict` など）と `onSentence`（1 文できるたびに呼ばれる）をそのまま入れられます。Node 版は `tts: { ... }` に入れ、ほかは `frames()`／`render()`／`stream()` のオプションです。
-- 声も出力の音も 44.1 kHz です。使うときは、ZEN-TTS と ZEN-LipSync の両方のクレジットを表示してください（必須）。1 行にまとめて構いません。例：「音声合成：ZEN-TTS / リップシンク：ZEN-LipSync（https://zenryokukikai.com）」（URL はリンクにします）
+- 声も出力の音も 44.1 kHz です。使うときは、ZEN-TTS と ZEN-LipSync の両方のクレジットを表示してください（必須）。1 行にまとめて構いません。例：「音声合成：ZEN-TTS / リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」（URL はリンクにします）
 
 ## 会話（マイク → 返事 → 声 → アバター）
 
@@ -272,6 +272,6 @@ const mic = await openMic({ conversation });   // 話し始めで音を止め、
 **ZEN-LipSync ライセンス**（[LICENSE.md](LICENSE.md)）。SDK とアバター（zen-lipsync-avatars）は、同じ文面のこのライセンスです。
 
 - 本ソフトウェアをそのまま自分のアプリ・サイト・サービス・作品に組み込んで使えます（商用・非商用を問わず）。改変はできません（ソースコード・モデルの重み・アバター素材を含む。自分のアプリのビルドで依存として取り込み、バンドル・圧縮することは改変にあたりません）。
-- **条件**：本ソフトウェアやそれで作った映像を使うアプリ・サイト・作品では、利用者が見つけられる場所にクレジット「リップシンク：ZEN-LipSync（https://zenryokukikai.com）」を表示してください。URL はリンクにします（リンクを埋め込めない媒体では URL を文字で書けば足ります）。
+- **条件**：本ソフトウェアやそれで作った映像を使うアプリ・サイト・作品では、利用者が見つけられる場所にクレジット「リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」を表示してください。URL はリンクにします（リンクを埋め込めない媒体では URL を文字で書けば足ります）。
 - 再配布（モデル・重み・アバター素材を第三者に渡す、再許諾、販売、譲渡、貸与）はできません。他の機械学習モデルの学習・蒸留・評価への利用もできません。なりすまし、本人の同意のない利用、人をだます目的などにも使えません（3 章）。
 - アバター（全力 マリン・全力 ハシロウ・全力 キッカ）の素材の決まりは 4 章です（素材は zen-lipsync-avatars にあります）。第三者の部分は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

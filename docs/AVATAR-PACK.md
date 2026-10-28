@@ -4,7 +4,7 @@ ZEN-LipSync は、アバター 1 人ぶんのファイルをまとめた「ア�
 ZEN-LipSync renders an avatar from an *avatar pack*: one directory with the files below.
 
 > **重要：** リップシンクのモデルは、アバターの待機映像ごとに用意したものです。パックは全力機械が作成します。
-> 新しいアバター（ご自身の顔・映像）のモデル作成は、全力機械にご依頼ください（https://zenryokukikai.com）。
+> 新しいアバター（ご自身の顔・映像）のモデル作成は、全力機械にご依頼ください（https://zenryokukikai.com ）。
 > **Important:** the lip-sync models are made for each avatar's idle video, and packs are made by Zenryoku Kikai.
 > To have a model made for a new avatar (your own face or video), please contact Zenryoku Kikai (https://zenryokukikai.com).
 
