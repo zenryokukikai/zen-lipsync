@@ -16,7 +16,7 @@ import { logMel, MEL_SAMPLE_RATE } from '../core/mel.js';
 import { resample } from '../core/resample.js';
 import { NodeAvatar } from './avatar.js';
 import { resolveFfmpeg } from './ffmpeg.js';
-import { loadFrameModel, type FrameKernel, type NodeBackend } from './frame-model.js';
+import { frameF32Blob, loadFrameModel, loadFrameModelF32, type FrameKernel, type FrameModel, type FramePrecision, type NodeBackend } from './frame-model.js';
 import type { IdleCache } from './idle-video.js';
 import { NodePack } from './pack.js';
 import { nodePackSource } from './pack-source.js';
@@ -27,7 +27,7 @@ export { NodeAvatar, type NodeFrame, type FramesOptions, type RenderOptions, typ
 export { renderAudio, renderAudioFile, wavAudio, type RenderAudioOptions, type RenderAudioFileOptions, type RenderAudioProgress, type RenderAudioResult } from './render-audio.js';
 export { openWav, WavFormatError, type WavInfo, type WavReader } from './wav.js';
 export { FfmpegMissingError } from './ffmpeg.js';
-export { nativeAddonPath, type NodeBackend, type FrameKernel } from './frame-model.js';
+export { nativeAddonPath, type NodeBackend, type FrameKernel, type FramePrecision } from './frame-model.js';
 export type { IdleCache } from './idle-video.js';
 
 /** Options of create() on Node. */
@@ -43,6 +43,14 @@ export interface NodeCreateOptions {
   assetsBaseUrl?: string;
   /** 'auto' (default): the native frame model when it loads, else WebAssembly. */
   backend?: NodeBackend;
+  /**
+   * Arithmetic of the frame model. 'float32': the same output as the browser (frame.i8.wgw, else frame.wgw); native
+   * only (AVX-512F or AVX2 with FMA, linux-x64). 'int8': frame.lip8, fastest (AVX-512 VNNI), its rounding can show as
+   * fine grain around the mouth. Not given (default): float32 when the native float32 frame model loads, else int8
+   * (backend 'cpu-wasm', no native addon, or a CPU without AVX2); avatar.kernel tells which. Given 'float32' with
+   * backend 'cpu-wasm' is refused, and fails when the native float32 frame model does not load.
+   */
+  precision?: FramePrecision;
   /** Idle loop shown first (default: the avatar's default). */
   idle?: string;
   /** The ffmpeg program (default: ZEN_LIPSYNC_FFMPEG, else "ffmpeg" on PATH). */
@@ -62,11 +70,13 @@ const modelCache = new Map<string, Promise<{ lips: LipModels; kernel: FrameKerne
 export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
   const t0 = performance.now();
   if (typeof options !== 'object' || options === null) throw new OptionsError('create(): options must be an object');
-  const known = ['avatar', 'assetsPath', 'assetsBaseUrl', 'backend', 'idle', 'ffmpegPath', 'idleCache', 'onProgress'];
+  const known = ['avatar', 'assetsPath', 'assetsBaseUrl', 'backend', 'precision', 'idle', 'ffmpegPath', 'idleCache', 'onProgress'];
   for (const k of Object.keys(options)) if (!known.includes(k)) throw new OptionsError(`create(): unknown option "${k}"`);
-  const { assetsPath, assetsBaseUrl, backend = 'auto', ffmpegPath, idleCache = 'stream' } = options;
+  const { assetsPath, assetsBaseUrl, backend = 'auto', precision, ffmpegPath, idleCache = 'stream' } = options;
   if (assetsPath !== undefined && assetsBaseUrl !== undefined) throw new OptionsError('create(): give assetsPath or assetsBaseUrl, not both');
   if (!['auto', 'cpu-native', 'cpu-wasm'].includes(backend)) throw new OptionsError('create(): "backend" must be auto, cpu-native or cpu-wasm');
+  if (precision !== undefined && precision !== 'int8' && precision !== 'float32') throw new OptionsError('create(): "precision" must be int8 or float32');
+  if (precision === 'float32' && backend === 'cpu-wasm') throw new OptionsError('create(): precision "float32" runs on the native frame model only (backend auto or cpu-native)');
   if (idleCache !== 'stream' && idleCache !== 'memory') throw new OptionsError('create(): "idleCache" must be stream or memory');
   let avatar = options.avatar;
   if (typeof avatar === 'string' && /^[a-z0-9_-]+$/i.test(avatar) && (assetsPath || assetsBaseUrl)) avatar = `avatars/${avatar}/avatar.json`;
@@ -86,7 +96,9 @@ export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
     return f;
   };
   const first = listing.packs[0]!;
-  const models = loadModels(src, first, backend);
+  const models = precision !== undefined ? loadModels(src, first, backend, precision)
+    : backend === 'cpu-wasm' ? loadModels(src, first, backend, 'int8')
+    : loadModels(src, first, backend, 'float32').catch(() => loadModels(src, first, backend, 'int8'));
   const packs = await Promise.all(listing.packs.map((p) => NodePack.load(src, p, { ffmpeg, idleCache, localDir })));
   const { lips, kernel, prep } = await models;
   let pairs: IdleSwitchFile | null = null;
@@ -94,20 +106,34 @@ export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
   return new NodeAvatar(new Map(packs.map((p) => [p.name, p])), lips, kernel, prep, pairs, listing.set, ffmpeg, performance.now() - t0, loaded);
 }
 
-function loadModels(src: ReturnType<typeof nodePackSource>, pack: PackRef, backend: NodeBackend): Promise<{ lips: LipModels; kernel: FrameKernel; prep: SpeechPrep }> {
+/** The float32 frame model's weights: frame.i8.wgw (as the browser), else frame.wgw. */
+async function loadF32(src: ReturnType<typeof nodePackSource>, pack: PackRef): Promise<{ frame: FrameModel; bytes: number }> {
+  const i8 = modelPath(src, pack, MODEL_FILES.frameI8);
+  let file: ArrayBuffer, format: 'i8' | 'f32' = 'i8';
+  try { file = await src.bytes(i8.path, fileHash(pack.meta, i8.rel)); } catch {
+    const f = modelPath(src, pack, MODEL_FILES.frameF32);
+    file = await src.bytes(f.path, fileHash(pack.meta, f.rel));
+    format = 'f32';
+  }
+  return { frame: loadFrameModelF32(frameF32Blob(file, format)), bytes: file.byteLength };
+}
+
+function loadModels(src: ReturnType<typeof nodePackSource>, pack: PackRef, backend: NodeBackend, precision: FramePrecision): Promise<{ lips: LipModels; kernel: FrameKernel; prep: SpeechPrep }> {
   const sm = modelPath(src, pack, MODEL_FILES.sentence);
-  const fm = modelPath(src, pack, MODEL_FILES.frameCpu);
-  const key = `${fm.path}|${backend}`;
+  const fm = modelPath(src, pack, precision === 'float32' ? MODEL_FILES.frameI8 : MODEL_FILES.frameCpu);
+  const key = `${fm.path}|${backend}|${precision}`;
   let m = modelCache.get(key);
   if (!m) {
     m = (async () => {
-      const [sb, fb] = await Promise.all([src.bytes(sm.path, fileHash(pack.meta, sm.rel)), src.bytes(fm.path, fileHash(pack.meta, fm.rel))]);
+      const sbP = src.bytes(sm.path, fileHash(pack.meta, sm.rel));
+      const fP = precision === 'float32' ? loadF32(src, pack)
+        : src.bytes(fm.path, fileHash(pack.meta, fm.rel)).then(async (fb) => ({ frame: await loadFrameModel(fb, backend), bytes: fb.byteLength }));
+      const [sb, { frame, bytes: fbBytes }] = await Promise.all([sbP, fP]);
       const prep = speechPrep(sb);
-      const frame = await loadFrameModel(fb, backend);
       const out = new Float32Array(3 * 160 * 352);
       const lips: LipModels = {
         backend: 'cpu',
-        weightBytes: sb.byteLength + fb.byteLength,
+        weightBytes: sb.byteLength + fbBytes,
         sentence: (mel, ref, T) => prep.sentence(mel, ref, T),
         frame: async (feat, z, n) => {
           const res = new Float32Array(n * out.length);

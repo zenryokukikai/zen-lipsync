@@ -1,7 +1,9 @@
 // An avatar pack: the idle video's per-frame geometry, the precomputed features of every source frame, the colour
 // tables, the mouth crops and alpha masks, and the two models' weights. See docs/AVATAR-PACK.md for the format.
 import { WebGPUUnavailableError } from '../core/errors.js';
-import { listAvatar, loadPackData, type Geometry, type PackMeta, type PackRef } from '../core/pack.js';
+import { DeltaCleaner } from '../core/delta-clean.js';
+import { fileHash, listAvatar, loadPackData, type Geometry, type PackMeta, type PackRef } from '../core/pack.js';
+import { FramesPackStream } from './frames-pack-stream.js';
 import type { LipWeights } from '../core/types.js';
 import { browserPackSource, registerPackHashes } from './pack-source.js';
 import { WgslLips } from './wgsl.js';
@@ -31,6 +33,8 @@ const DECODED_FRAMES = 24;
 
 export class Avatar implements LipAvatar {
   private readonly blobs = new Map<string, Promise<Blob>>();
+  /** Version 2 packs: the frames.pack, downloaded once (streamed: a frame is usable as soon as its bytes arrived). */
+  private framesPack: FramesPackStream | null = null;
   private readonly decoded = new Map<number, Promise<SourceFrame>>();
   /** fp16 bits [source frames, featSize]. */
   readonly feat: Uint16Array;
@@ -94,13 +98,23 @@ export class Avatar implements LipAvatar {
     return f;
   }
 
-  /** Downloads the compressed crops and masks of every source frame (no decoding), 4 at a time. */
+  /** Downloads the compressed crops and masks of every source frame (no decoding): the frames.pack (version 2), or the
+   *  frame files 4 at a time (version 1). */
   async fetchAllFrames(): Promise<void> {
+    if (this.meta.frames) { await this.pack().done; return; }
     const names: string[] = [];
     for (let u = 0; u < this.meta.source_frames; u++) names.push(fileName('crop', u), fileName('alpha', u));
     let next = 0;
     const worker = async (): Promise<void> => { while (next < names.length) await this.blob(names[next++]!); };
     await Promise.all([worker(), worker(), worker(), worker()]);
+  }
+
+  private pack(): FramesPackStream {
+    if (!this.framesPack) {
+      const f = this.meta.frames!;
+      this.framesPack = new FramesPackStream(`${this.base}/${f.pack}`, this.meta.source_frames, f.type, fileHash(this.meta, f.pack), (n) => { this.bytesLoaded += n; });
+    }
+    return this.framesPack;
   }
 
   private blob(name: string): Promise<Blob> {
@@ -117,7 +131,7 @@ export class Avatar implements LipAvatar {
   private async decodeFrame(u: number): Promise<SourceFrame> {
     const geo = this.meta.geo[String(u)];
     if (!geo) throw new Error(`source frame ${u} has no geometry`);
-    const [cropBlob, alphaBlob] = await Promise.all([this.blob(fileName('crop', u)), this.blob(fileName('alpha', u))]);
+    const [cropBlob, alphaBlob] = this.meta.frames ? await this.pack().frame(u) : await Promise.all([this.blob(fileName('crop', u)), this.blob(fileName('alpha', u))]);
     const pixels = async (blob: Blob): Promise<ImageData> => {
       const bm = await createImageBitmap(blob);
       const c = new OffscreenCanvas(bm.width, bm.height);
@@ -176,11 +190,14 @@ export class Compositor {
   private readonly mg: OffscreenCanvasRenderingContext2D;
   private readonly pc = new OffscreenCanvas(1, 1);
   private readonly pg: OffscreenCanvasRenderingContext2D;
+  private readonly cleaner: DeltaCleaner;
 
   /** x of the video frame maps to x - shown.x on the canvas. */
   constructor(private readonly shown: View, private readonly avatar: Avatar) {
     this.mg = this.mc.getContext('2d', { willReadFrequently: true })!;
     this.pg = this.pc.getContext('2d')!;
+    const box = avatar.meta.box;
+    this.cleaner = new DeltaCleaner(box.x1 - box.x0, box.y1 - box.y0);
   }
 
   /** A patch that draws nothing: the frames with no sound under them are shown exactly as the idle video has them. */
@@ -197,7 +214,7 @@ export class Compositor {
     return this.warp(f, img);
   }
 
-  /** The box's change added in the model's colour (video value -> model colour, + change, -> video). Its box edges are already 0. */
+  /** The box's change, cleaned (DeltaCleaner: skin tint removed, edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
   private addChange(img: ImageData, f: SourceFrame, pred: Float32Array, index: number): void {
     const a = this.avatar;
     const box = a.meta.box;
@@ -205,19 +222,19 @@ export class Compositor {
     const cw = x1 - x0;
     const bw = box.x1 - box.x0;
     const plane = (box.y1 - box.y0) * bw;
-    const offset = index * 3 * plane;
     const d = img.data;
     const ya = Math.max(y0, box.y0);
     const yb = Math.min(y1, box.y1);
     const xa = Math.max(x0, box.x0);
     const xb = Math.min(x1, box.x1);
+    const delta0 = this.cleaner.clean(pred, index, [xa - box.x0, ya - box.y0, xb - box.x0, yb - box.y0]);
     for (let y = ya; y < yb; y++) {
       const brow = (y - box.y0) * bw - box.x0;
       const crow = (y - y0) * cw - x0;
       for (let x = xa; x < xb; x++) {
         const o = (crow + x) * 4;
         for (let c = 0; c < 3; c++) {
-          const delta = pred[offset + c * plane + brow + x]!;
+          const delta = delta0[c * plane + brow + x]!;
           if (delta > -0.5 && delta < 0.5) continue;
           const v = a.fromVideo[c]![d[o + c]!]! + delta;
           d[o + c] = a.toVideo[c]![v <= 0 ? 0 : v >= 255 ? 255 : Math.round(v)]!;

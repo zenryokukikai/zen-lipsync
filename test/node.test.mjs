@@ -22,6 +22,8 @@ test('create(): option checks (before any file is read)', async () => {
   await assert.rejects(create({ avatar: 'marine', assetsPath: '/a', assetsBaseUrl: 'https://x/' }), /assetsPath or assetsBaseUrl/);
   await assert.rejects(create({ avatar: 'marine', assetsPath: '/a', backend: 'gpu' }), /backend/);
   await assert.rejects(create({ avatar: 'marine', assetsPath: '/a', idleCache: 'disk' }), /idleCache/);
+  await assert.rejects(create({ avatar: 'marine', assetsPath: '/a', precision: 'fp16' }), /precision/);
+  await assert.rejects(create({ avatar: 'marine', assetsPath: '/a', precision: 'float32', backend: 'cpu-wasm' }), /native frame model only/);
   await assert.rejects(create({ avatar: '' }), OptionsError);
 });
 
@@ -93,4 +95,40 @@ test('NodeAvatar: frames() of chunked speech, audio laid end to end, one output 
   await assert.rejects(a.speak(chunk(1)), OptionsError);
   a.destroy();
   await assert.rejects(a.frames(chunk(1)).next(), /destroyed/);
+});
+
+test('frames.pack (pack version 2): index, frame byte ranges, and the WebP decoder on Node', async () => {
+  const { readFramesPackIndex, framesPackHeadLength, framesPackFrameEnd, checkPackMeta } = await import('../dist/core/index.js');
+  const { decodeWebp } = await import('../dist/node/webp.js');
+  // lossless 3x2 RGB and 2x2 grey images, so the decoded pixels are exact
+  const crop = Buffer.from('UklGRkIAAABXRUJQVlA4TDYAAAAvAkAAAC9AEEBSI0y2v8waZNI2pV/9+5m1kQlYDBV8+uc0/wF/xCNGm61AIEAZKx7YJqL/MV4=', 'base64');
+  const alpha = Buffer.from('UklGRjQAAABXRUJQVlA4TCgAAAAvAUAAAB8gEEjxaJktEEhGy2x1gUAyWmarz39UAX4gG6BMFWYR/Y8d', 'base64');
+  const pack = (n) => {
+    let head = 0; let index = Buffer.alloc(0);
+    do { // the index length depends on the offsets, the offsets on the index length: until they agree
+      head = index.length;
+      const frames = []; let o = 12 + head;
+      for (let u = 0; u < n; u++) { frames.push([o, crop.length, o + crop.length, alpha.length]); o += crop.length + alpha.length; }
+      index = Buffer.from(JSON.stringify({ type: 'image/webp', frames }));
+    } while (index.length !== head);
+    const len = Buffer.alloc(4); len.writeUInt32LE(index.length);
+    return Buffer.concat([Buffer.from('ZLFPACK1'), len, index, ...Array.from({ length: n }, () => [crop, alpha]).flat()]);
+  };
+  const file = new Uint8Array(pack(3));
+  assert.equal(framesPackHeadLength(file.subarray(0, 11)), 0);
+  const idx = readFramesPackIndex(file, 'test', 3);
+  assert.equal(framesPackFrameEnd(idx, 2), file.length);
+  assert.throws(() => readFramesPackIndex(file, 'test', 4), /has 3 frames/);
+  assert.throws(() => readFramesPackIndex(new Uint8Array(Buffer.from('NOTAPACK0000')), 'test', 1), /not a frames.pack/);
+  const [co, cl, ao, al] = idx.frames[1];
+  const c = await decodeWebp(file.subarray(co, co + cl), 3);
+  assert.deepEqual([c.width, c.height, c.channels], [3, 2, 3]);
+  assert.deepEqual([...c.data], [255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30, 200, 100, 50, 1, 2, 3]);
+  const a = await decodeWebp(file.subarray(ao, ao + al), 1);
+  assert.deepEqual([a.width, a.height, ...a.data], [2, 2, 0, 64, 128, 255]);
+  // manifest version 2 needs "frames" naming a listed file; version 1 does not
+  const base = { format: 'zen-lipsync-avatar', name: 'x', frame_size: [4, 4], fps: 25, source_frames: 1, walk: [0], geo: {}, box: {}, feat_dims: [1, 1, 1], latent_window: 1, video: [{ src: 'idle.webm', type: 'video/webm' }] };
+  assert.doesNotThrow(() => checkPackMeta({ ...base, version: 1, files: {} }, 'v1'));
+  assert.throws(() => checkPackMeta({ ...base, version: 2, files: {} }, 'v2'), /"frames"/);
+  assert.doesNotThrow(() => checkPackMeta({ ...base, version: 2, files: { 'frames.pack': { bytes: 1, sha256: '' } }, frames: { pack: 'frames.pack', type: 'image/webp' } }, 'v2'));
 });

@@ -6,7 +6,7 @@ import type { SpeechAudio } from '../core/types.js';
 import type { NodeAvatar, RenderProgress } from './avatar.js';
 import { openWav, type WavReader } from './wav.js';
 import type { IdleCache } from './idle-video.js';
-import type { NodeBackend } from './frame-model.js';
+import type { FramePrecision, NodeBackend } from './frame-model.js';
 import { create } from './index.js';
 
 /** Chunks of the WAV's samples (mono, the file's own sample rate); the reader is closed at the end or on abort. */
@@ -107,6 +107,8 @@ export interface RenderAudioFileOptions extends RenderAudioOptions {
   assetsBaseUrl?: string;
   /** 'auto' (default): the native frame model when it loads, else WebAssembly. */
   backend?: NodeBackend;
+  /** 'float32' or 'int8' (see create(); default: float32 when the native float32 frame model loads, else int8). */
+  precision?: FramePrecision;
   /** Idle loop shown first (default: the avatar's default). */
   idle?: string;
   /** The ffmpeg program (default: ZEN_LIPSYNC_FFMPEG, else "ffmpeg" on PATH). */

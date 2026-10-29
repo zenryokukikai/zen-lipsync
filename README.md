@@ -2,7 +2,7 @@
 
 実写アバターの音声駆動リップシンク SDK。ブラウザ（WebGPU）と Node.js（CPU）で動作します。
 
-バージョン 1.0.0。
+バージョン 1.1.0。
 
 各アバターの voice（ZEN-TTS）を Node.js（CPU）でレンダリングしたサンプルです。
 
@@ -43,14 +43,14 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.0.0
+npm i github:zenryokukikai/zen-lipsync#v1.1.0
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.0.0
+pnpm add github:zenryokukikai/zen-lipsync#v1.1.0
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.0.0
+yarn add github:zenryokukikai/zen-lipsync#v1.1.0
 ```
 
-- `#v1.0.0` はタグまたはコミットハッシュで固定してください。
+- `#v1.1.0` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.0.0` を追加します。
@@ -66,7 +66,7 @@ yarn add github:zenryokukikai/zen-lipsync#v1.0.0
 | TTS 連携 | `@zenryokukikai/zen-lipsync/tts`、`…/tts/node` | ZEN-TTS で文単位に合成しながら、ギャップなくリップシンク。 |
 | 対話 | `@zenryokukikai/zen-lipsync/conversation` | マイクのターン検出 → reply（LLM）→ synthesize（TTS）→ アバター。barge-in、相づち、感情による idle 切り替え、レイテンシ計測。LLM / TTS はアプリが渡す。 |
 
-`VERSION`（`'1.0.0'`）をブラウザ / Node の両エントリから export。パック形式は [docs/AVATAR-PACK.md](docs/AVATAR-PACK.md)。
+`VERSION`（`'1.1.0'`）をブラウザ / Node の両エントリから export。パック形式は [docs/AVATAR-PACK.md](docs/AVATAR-PACK.md)。
 
 ## 使い方（ブラウザ）
 
@@ -105,6 +105,10 @@ React：`<ZenLipSync avatar="/avatars/marine/avatar.json" onReady={(avatar) => a
 | `stop()` / `pause()` / `resume()` / `destroy()` | 止める（待機映像は続く）・一時停止・再開・解放。 |
 | エラー | `WebGPUUnavailableError`（`reason`：`'no-navigator-gpu'`・`'no-adapter'`）、`OptionsError`、`AvatarPackError` |
 
+**口元と待機映像のコマの合わせ方**：口元は、画面に出ている待機映像のコマに合わせて、その上の canvas に描きます。ブラウザによっては canvas が待機映像より 1 回遅れて画面に出るため（iPhone の Safari など）、既定（`sync: 'auto'`）では端末ごとに描画が間に合っているかを測り、いつも遅れる端末では 1 コマ先の口元を描きます。測れない端末（フレームの表示時刻が別の時計のもの）は、待機中の最初の 2 コマで 1 コマ先に切り替えます。`LipSyncPlayer.create(…, { sync })` で `'video'`（そのコマ）・`'next'`（1 コマ先）・`'canvas'`（待機映像のコマと口元を同じ canvas に描く）に固定できます。
+
+**待機映像の切り替え（`setIdle`）**：待機ループがいくつあっても、`<video>` は 2 つ（表示中と待機用）だけ使います。待機用の `<video>` に次のループを読み込み、ペアのフレームへシークして再生し、実際にコマが出てからクロスフェードして、2 つの役割を入れ替えます。iOS の Safari（低電力モードなど）はタップの外での `play()` を断ることがあるため、`resume()` はユーザーのタップの中で呼んでください（2 つの `<video>` をそこで一度再生します）。読み込み・シーク・再生のどれかが時間内に終わらないときは、切り替えをやめて今のループのまま続けます（`setIdle` は `false`）。表示中の `<video>` からコマが 0.7 秒届かないときは、再生し直します。
+
 動くブラウザ：WebGPU が使えるもの（Chrome / Edge 113 以降、Safari 26 以降、Android の Chrome など）。細かく使う場合：`LipSyncPlayer`、`Avatar`、`loadModels`、`logMel`、`sentenceLatents`、`inferFrames`、`Compositor`（`src/index.ts`）。
 
 ## 使い方（サーバー・Node.js）
@@ -113,7 +117,7 @@ Node.js 26.12.1+、CPU のみ（GPU 不使用）。
 
 **必要なもの**
 - **ffmpeg**：待機映像の読み込みと動画の書き出しに使います。`PATH` のものを使います（`apt install ffmpeg` など）。別の場所なら `ffmpegPath` か環境変数 `ZEN_LIPSYNC_FFMPEG`。
-- **速い CPU 版（任意）**：linux-x64 なら `pnpm run build:native`（`native/node/build.sh`）でネイティブ版を作れます（gcc が必要）。作らない場合と、ほかの OS は WebAssembly 版で動きます。
+- **ネイティブ版（任意、おすすめ）**：linux-x64 なら `pnpm run build:native`（`native/node/build.sh`）でネイティブ版を作れます（gcc が必要）。既定の float32（ブラウザと同じ画質）はネイティブ版で動きます。作らない場合と、ほかの OS は WebAssembly 版の int8 で動きます。
 - アバターのファイル（zen-lipsync-avatars を clone したディレクトリ、または配信している URL）。
 
 ```js
@@ -129,7 +133,7 @@ avatar.destroy();
 
 - **音声を少しずつ渡す**：`frames()`／`render()`／`stream()` には、音声 1 つの代わりに、音声のチャンクの（非同期）イテレータも渡せます。次のチャンクの準備は別スレッドで、今のチャンクを描いている間に進みます。音声は隙間なく繋がります。
 - **`realtime: true`**：1 秒 25 フレームずつ。次の音声が届くまでは待機映像を出し続けます。出力は `startDelayMs`（既定 600 ms）遅れて始まります。
-- **`create()` のオプション**：`backend`（`'auto'`（既定：ネイティブ版があればそれ、なければ WebAssembly）、`'cpu-native'`、`'cpu-wasm'`）、`idle`、`assetsBaseUrl`（`assetsPath` の代わりに URL）、`idleCache`（`'stream'`（既定）／`'memory'`）。どの版で動いているかは `avatar.kernel`（`avx512`／`avx2`／`sse41`／`wasm`）。
+- **`create()` のオプション**：`backend`（`'auto'`（既定：ネイティブ版があればそれ、なければ WebAssembly）、`'cpu-native'`、`'cpu-wasm'`）、`idle`、`assetsBaseUrl`（`assetsPath` の代わりに URL）、`idleCache`（`'stream'`（既定）／`'memory'`）、`precision`（`'float32'`（ブラウザと同じ画質。ネイティブ版だけ）／`'int8'`（速い））。指定しないときは、ネイティブの float32 版が読み込めれば float32、読み込めなければ（`backend: 'cpu-wasm'`、ネイティブ版がない、AVX2 がない CPU）int8 です。どの版で動いているかは `avatar.kernel`（float32：`avx512-f32`／`avx2-f32`、int8：`avx512`／`avx2`／`sse41`／`wasm`）。
 - 例：zen-lipsync-avatars の `examples/node-mp4/`（WAV → MP4）、`examples/node-stream/`（WebSocket で配信）、`examples/node-tts/`（文章 → MP4）、`examples/conversation/`（ブラウザで会話）。
 
 ### 音声ファイルから長い動画を作る
@@ -160,7 +164,7 @@ const r = await renderAudioFile({
 
 - **WAV だけ**：8/16/24/32 bit の PCM と 32/64 bit の float、モノラル・ステレオ（平均してモノラルにします）。ほかの形式は先に変換してください：`ffmpeg -i in.mp3 -ac 1 -ar 48000 out.wav`。
 - **メモリ**：プロセス全体で約 0.4 GB（`idleCache: 'stream'`、実測 354〜425 MB）。30 秒でも 3 分でもほぼ同じで、音声の長さに比例して増えません。
-- **速さ**（Intel Xeon Silver 4316、CPU 1 スレッド、ネイティブ AVX-512 VNNI、33 秒と 180 秒の音声）：1 秒あたり約 50〜59 フレーム、実時間の 0.42〜0.50 倍。180 秒の動画が約 78 秒でできます。AVX2／WebAssembly 版は下の「速さ」の表のとおり遅くなります。
+- **速さ**（Intel Xeon Silver 4316、CPU 1 スレッド、ネイティブ AVX-512 VNNI の int8、33 秒と 180 秒の音声）：1 秒あたり約 50〜59 フレーム、実時間の 0.42〜0.50 倍。180 秒の動画が約 78 秒でできます。既定の float32 と、AVX2／WebAssembly 版は下の「速さ」の表のとおり遅くなります。
 - 同じアバターで何本も作るときは、`create()` と `renderAudio(avatar, chunks, opts)` を分けて使います（アバターの読み込みが 1 回で済みます）。
 - 例：`node examples/render-audio.mjs marine /path/to/zen-lipsync-avatars in.wav out.mp4`
 
@@ -168,17 +172,22 @@ const r = await renderAudioFile({
 
 | 版 | フレームモデル（1 フレーム） | 全体（合成込み） | 実時間に対する時間 |
 |---|---|---|---|
-| ネイティブ AVX-512 VNNI | 2.9 ms | 約 40 fps（`idleCache: 'memory'` なら約 47 fps） | 0.62（0.52） |
-| ネイティブ AVX2 | 26.6 ms | 約 20 fps | 1.22 |
-| ネイティブ SSE4.1 | 29.8 ms | 約 19 fps | 1.30 |
-| WebAssembly（SIMD128） | 29.0 ms | 約 19.5 fps | 1.27 |
+| ネイティブ AVX-512、float32（既定） | 9.0〜10.0 ms | 約 26〜27 fps | 0.93〜0.95 |
+| ネイティブ AVX2、float32（既定） | 15.4〜16.2 ms | 約 23 fps | 1.08 |
+| ネイティブ AVX-512 VNNI、`precision: 'int8'` | 2.9 ms | 約 40 fps（`idleCache: 'memory'` なら約 47 fps） | 0.62（0.52） |
+| ネイティブ AVX2、`precision: 'int8'` | 26.6 ms | 約 20 fps | 1.22 |
+| ネイティブ SSE4.1、`precision: 'int8'` | 29.8 ms | 約 19 fps | 1.30 |
+| WebAssembly（SIMD128）、int8 | 29.0 ms | 約 19.5 fps | 1.27 |
 
-1 未満なら実時間より速く作れます。CPU 1 本でリアルタイムに間に合うのは AVX-512 VNNI 版です（AVX2／SSE4.1／WebAssembly 版で `realtime: true` の配信をするなら、AVX-512 VNNI の CPU か、文モデル用にもう 1 本おすすめします）。音声 1 秒あたり、文モデルなどの準備に CPU 約 0.3 秒を別スレッドで使います。
+float32（既定）は、フレームモデルの計算をすべて float32 で行います（重みは `frame.i8.wgw` を読み込み時に一度だけ float32 に戻したもので、ブラウザと同じ出力になります）。`precision: 'int8'` は途中の計算も int8 に丸めるため速く、アバターによっては口元のまわりに細かい粒が出ます。float32 の 2 行は、ほかの処理が動いているマシン（ロードアベレージ 4〜7）で 10.43 秒の音声を測ったもので、同じ条件の int8（AVX-512 VNNI）は約 32〜33 fps、0.76〜0.78 でした。
+
+1 未満なら実時間より速く作れます。CPU 1 本でリアルタイムに間に合うのは AVX-512 の float32 と AVX-512 VNNI の int8 です（AVX2／SSE4.1／WebAssembly 版で `realtime: true` の配信をするなら、AVX-512 の CPU か、文モデル用にもう 1 本おすすめします）。音声 1 秒あたり、文モデルなどの準備に CPU 約 0.3 秒を別スレッドで使います。
 
 **同時に動かす数とメモリ**
 - 1 つのアバターは、同時に 1 つの出力だけを作ります。並行して作るときは `create()` をその数だけ呼びます。モデルの重みはプロセスの中で共有します。
 - アバター 1 つあたりのメモリ：`idleCache: 'stream'`（既定）で約 110 MB、`'memory'` で約 4.4 GB（待機映像の全フレームを持ち、少し速くなります）。
-- ネイティブ版のフレームモデルは 1 プロセスに 1 つです。AVX-512 VNNI 版はスレッドごとに作業領域を持ち、AVX2／SSE4.1 版は 1 プロセスの中で順番に実行します。CPU を何本も使うときは、プロセスを分けるのがおすすめです。
+- ネイティブ版の int8 のフレームモデルは 1 プロセスに 1 つです。AVX-512 VNNI 版はスレッドごとに作業領域を持ち、AVX2／SSE4.1 版は 1 プロセスの中で順番に実行します。CPU を何本も使うときは、プロセスを分けるのがおすすめです。
+- `precision: 'float32'` のフレームモデルは、1 プロセスにいくつでも作れて、どのスレッドからも同時に実行できます（作業領域はスレッドごとに約 11 MB）。
 
 ## ZEN-TTS で文章を話させる
 

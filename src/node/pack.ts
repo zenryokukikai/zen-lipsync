@@ -1,10 +1,12 @@
 // One idle loop of an avatar on Node: its manifest, features, colour tables, the source frames' crops and alpha masks
-// (PNG, kept compressed in memory and decoded on first use, then kept: about 65 MB per loop of 251 frames) and the
-// idle video (ffmpeg).
+// (version 1: PNG files, kept compressed and decoded on first use; version 2: one frames.pack of WebP images, decoded
+// when the pack loads; either way kept decoded: about 65 MB per loop of 251 frames) and the idle video (ffmpeg).
 import type { LipAvatar } from '../core/lipsync.js';
 import { fileHash, loadPackData, type PackRef, type PackSource, type PackMeta } from '../core/pack.js';
 import { AvatarPackError } from '../core/errors.js';
-import { decodePng } from './png.js';
+import { decodePng, type DecodedImage } from './png.js';
+import { decodeWebp } from './webp.js';
+import { readFramesPackIndex } from '../core/frames-pack.js';
 import type { SourceImages } from './compositor.js';
 import { IdleVideo, type IdleCache } from './idle-video.js';
 
@@ -36,23 +38,35 @@ export class NodePack implements LipAvatar {
   static async load(src: PackSource, pack: PackRef, opts: { ffmpeg: string; idleCache: IdleCache; localDir: (p: string) => Promise<string> }): Promise<NodePack> {
     const m = pack.meta;
     const data = await loadPackData(src, pack);
-    const names: string[] = [];
-    for (let u = 0; u < m.source_frames; u++) names.push(`frames/crop_${String(u).padStart(3, '0')}.png`, `frames/alpha_${String(u).padStart(3, '0')}.png`);
     const files = new Map<string, Uint8Array>();
-    let next = 0;
-    const worker = async (): Promise<void> => {
-      while (next < names.length) {
-        const n = names[next++]!;
-        files.set(n, new Uint8Array(await src.bytes(src.join(pack.dir, n), fileHash(m, n))));
+    const decoded = new Map<number, [DecodedImage, DecodedImage]>();
+    if (m.frames) {
+      const all = new Uint8Array(await src.bytes(src.join(pack.dir, m.frames.pack), fileHash(m, m.frames.pack)));
+      const index = readFramesPackIndex(all, `${pack.dir}/${m.frames.pack}`, m.source_frames);
+      for (let u = 0; u < m.source_frames; u++) {
+        const [co, cl, ao, al] = index.frames[u]!;
+        decoded.set(u, [await decodeWebp(all.subarray(co, co + cl), 3), await decodeWebp(all.subarray(ao, ao + al), 1)]);
       }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
+    } else {
+      const names: string[] = [];
+      for (let u = 0; u < m.source_frames; u++) names.push(`frames/crop_${String(u).padStart(3, '0')}.png`, `frames/alpha_${String(u).padStart(3, '0')}.png`);
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < names.length) {
+          const n = names[next++]!;
+          files.set(n, new Uint8Array(await src.bytes(src.join(pack.dir, n), fileHash(m, n))));
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+    }
     const webm = m.video.find((v) => v.src.endsWith('.webm')) ?? m.video[0];
     if (!webm) throw new AvatarPackError(`${pack.dir}: no idle video`);
     const file = await opts.localDir(src.join(pack.dir, webm.src));
     const video = new IdleVideo(file, m.frame_size[0], m.frame_size[1], m.walk.length, opts.ffmpeg, opts.idleCache);
     await video.open();
-    return new NodePack(pack.name, pack.dir, pack, data, files, video);
+    const p = new NodePack(pack.name, pack.dir, pack, data, files, video);
+    for (const [u, [crop, alpha]] of decoded) p.keep(u, crop, alpha);
+    return p;
   }
 
   walk(step: number): number {
@@ -62,16 +76,18 @@ export class NodePack implements LipAvatar {
 
   /** Crop (RGB) and alpha of source frame u. */
   source(u: number): SourceImages {
-    let s = this.decoded.get(u);
+    const s = this.decoded.get(u);
     if (s) { this.decoded.delete(u); this.decoded.set(u, s); return s; }
+    const n = String(u).padStart(3, '0');
+    return this.keep(u, decodePng(this.files.get(`frames/crop_${n}.png`)!), decodePng(this.files.get(`frames/alpha_${n}.png`)!));
+  }
+
+  private keep(u: number, crop: DecodedImage, alpha: DecodedImage): SourceImages {
     const geo = this.meta.geo[String(u)];
     if (!geo) throw new AvatarPackError(`${this.dir}: source frame ${u} has no geometry`);
-    const n = String(u).padStart(3, '0');
-    const crop = decodePng(this.files.get(`frames/crop_${n}.png`)!);
-    const alpha = decodePng(this.files.get(`frames/alpha_${n}.png`)!);
     const rgb = crop.channels === 3 ? crop.data : toRgb(crop.data, crop.channels);
     const a = alpha.channels === 1 ? alpha.data : toGrey(alpha.data, alpha.channels);
-    s = { geo, crop: rgb, cropW: crop.width, cropH: crop.height, alpha: a };
+    const s = { geo, crop: rgb, cropW: crop.width, cropH: crop.height, alpha: a };
     this.decoded.set(u, s);
     return s;
   }

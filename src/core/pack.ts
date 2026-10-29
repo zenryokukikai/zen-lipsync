@@ -16,7 +16,8 @@ export interface Geometry {
 /** manifest.json of one avatar pack (one idle loop). */
 export interface PackMeta {
   format: 'zen-lipsync-avatar';
-  version: 1;
+  /** 1: frames/crop_NNN.png + frames/alpha_NNN.png. 2: the same images in one frames.pack (frames). */
+  version: 1 | 2;
   name: string;
   /** Video frame size [width, height] and frame rate. */
   frame_size: [number, number];
@@ -36,6 +37,8 @@ export interface PackMeta {
   files: Record<string, { bytes: number; sha256: string }>;
   /** Directory of the model weights relative to the pack (default: the pack itself); packs of one avatar share it. */
   models?: string;
+  /** Version 2: the file holding every source frame's crop and mask (core/frames-pack.ts); also listed in files. */
+  frames?: { pack: string; type: string };
   license?: string;
   credit?: string;
 }
@@ -97,7 +100,7 @@ export const MODEL_FILES = { sentence: 'sentence.wgw', frameI8: 'frame.i8.wgw', 
 /** Checks a manifest.json (shape and sizes the runtime relies on). */
 export function checkPackMeta(meta: unknown, where: string): PackMeta {
   const m = meta as Partial<PackMeta> | null;
-  if (!m || m.format !== 'zen-lipsync-avatar' || m.version !== 1) throw new AvatarPackError(`${where}: not a ZEN-LipSync avatar pack (version 1)`);
+  if (!m || m.format !== 'zen-lipsync-avatar' || (m.version !== 1 && m.version !== 2)) throw new AvatarPackError(`${where}: not a ZEN-LipSync avatar pack (version 1 or 2)`);
   const need = <K extends keyof PackMeta>(k: K, ok: (v: unknown) => boolean): void => {
     if (!ok(m[k])) throw new AvatarPackError(`${where}: "${String(k)}" is missing or invalid`);
   };
@@ -112,6 +115,7 @@ export function checkPackMeta(meta: unknown, where: string): PackMeta {
   need('latent_window', isInt);
   need('video', (v) => Array.isArray(v) && v.length > 0);
   need('files', (v) => typeof v === 'object' && v !== null);
+  if (m.version === 2) need('frames', (v) => typeof v === 'object' && v !== null && typeof (v as { pack?: unknown }).pack === 'string' && !!m.files?.[(v as { pack: string }).pack]);
   return m as PackMeta;
 }
 

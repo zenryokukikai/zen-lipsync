@@ -3,6 +3,7 @@
 // patch alpha, at (abs_x, abs_y). Adding the difference (rather than drawing the warped crop) leaves the video pixel
 // untouched where the model's change is zero, so resampling and video-encode differences never show as a patch edge.
 import type { Geometry, PackMeta } from '../core/pack.js';
+import { DeltaCleaner } from '../core/delta-clean.js';
 
 export interface SourceImages {
   geo: Geometry;
@@ -16,8 +17,11 @@ export interface SourceImages {
 
 export class NodeCompositor {
   private work = new Uint8Array(0);
+  private readonly cleaner: DeltaCleaner;
 
-  constructor(private readonly meta: PackMeta, private readonly fromVideo: Float32Array[], private readonly toVideo: Float32Array[]) {}
+  constructor(private readonly meta: PackMeta, private readonly fromVideo: Float32Array[], private readonly toVideo: Float32Array[]) {
+    this.cleaner = new DeltaCleaner(meta.box.x1 - meta.box.x0, meta.box.y1 - meta.box.y0);
+  }
 
   /** Draws the index-th frame of pred (float32 [n,3,boxH,boxW]) for source frame src onto frame (rgb24, W x H) in place. */
   draw(frame: Uint8Array, W: number, H: number, src: SourceImages, pred: Float32Array, index: number): void {
@@ -66,7 +70,7 @@ export class NodeCompositor {
     }
   }
 
-  /** The crop with the box's change added in the model's colour (video value -> model colour, + change, -> video). */
+  /** The crop with the box's change, cleaned (DeltaCleaner: skin tint removed, edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
   private withChange(src: SourceImages, pred: Float32Array, index: number): Uint8Array {
     const n = src.crop.length;
     if (this.work.length < n) this.work = new Uint8Array(n);
@@ -77,15 +81,15 @@ export class NodeCompositor {
     const cw = x1 - x0;
     const bw = box.x1 - box.x0;
     const plane = (box.y1 - box.y0) * bw;
-    const offset = index * 3 * plane;
     const ya = Math.max(y0, box.y0), yb = Math.min(y1, box.y1), xa = Math.max(x0, box.x0), xb = Math.min(x1, box.x1);
+    const delta0 = this.cleaner.clean(pred, index, [xa - box.x0, ya - box.y0, xb - box.x0, yb - box.y0]);
     for (let y = ya; y < yb; y++) {
       const brow = (y - box.y0) * bw - box.x0;
       const crow = (y - y0) * cw - x0;
       for (let x = xa; x < xb; x++) {
         const o = (crow + x) * 3;
         for (let k = 0; k < 3; k++) {
-          const delta = pred[offset + k * plane + brow + x]!;
+          const delta = delta0[k * plane + brow + x]!;
           if (delta > -0.5 && delta < 0.5) continue;
           const v = this.fromVideo[k]![img[o + k]!]! + delta;
           img[o + k] = this.toVideo[k]![v <= 0 ? 0 : v >= 255 ? 255 : Math.round(v)]!;
