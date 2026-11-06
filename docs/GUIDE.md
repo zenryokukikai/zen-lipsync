@@ -299,4 +299,4 @@ avatar.destroy();
 
 - [API.md](API.md)：関数・オプション・イベントの一覧
 - [README](../README.md)：速さ・メモリ・Node.js のネイティブ版など
-- zen-lipsync-avatars の `examples/`：音声認識つきの会話など
+- zen-lipsync-avatars の `examples/`：音声認識つきの会話など（`pnpm fetch-asr` と `pnpm fetch-tts-models` でモデルを取ってから）
