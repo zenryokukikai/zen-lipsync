@@ -53,7 +53,7 @@ yarn add github:zenryokukikai/zen-lipsync#v1.1.0
 - `#v1.1.0` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
-- TTS 連携には `github:zenryokukikai/zen-tts#v1.0.0` を追加します。
+- TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。
 - 開発：`pnpm install && pnpm build && pnpm test`。`pnpm-workspace.yaml` の `minimumReleaseAge` で公開 7 日未満の依存を除外。
 
 ## エントリポイント
@@ -191,21 +191,22 @@ float32（既定）は、フレームモデルの計算をすべて float32 で�
 
 ## ZEN-TTS で文章を話させる
 
-ZEN-TTS（`zen-tts`）は、組み合わせたいときだけ入れる追加のパッケージです（`pnpm add github:zenryokukikai/zen-tts`）。
+ZEN-TTS（`zen-tts`）は、組み合わせたいときだけ入れる追加のパッケージです（`pnpm add github:zenryokukikai/zen-tts#v1.2.0`）。
 
 ```js
 // ブラウザ（WebGPU）
 import { create } from '@zenryokukikai/zen-lipsync';
 import { speakText } from '@zenryokukikai/zen-lipsync/tts';
-import { ZenTts } from 'zen-tts';
+import { ZenTts, ztmUrl } from 'zen-tts';
 const avatar = await create({ container, avatar: '/avatars/marine/avatar.json' });
-const tts = await ZenTts.load({ modelsUrl: './tts-models', backend: 'webgpu' });
+// 声は CDN の .ztm、読みのモデルは modelsUrl の g2p/（zen-tts の models/g2p/ を置く）
+const tts = await ZenTts.load({ modelsUrl: './tts-models', model: ztmUrl('marine'), backend: 'webgpu' });
 await speakText(avatar, tts, 'こんにちは。全力マリンです。今日はいい天気ですね。', { emotion: { happy: 60, neutral: 40 } });
 
 // サーバー（Node.js、CPU）
 import { renderText, streamText } from '@zenryokukikai/zen-lipsync/tts/node';
-import { ZenTtsNode } from 'zen-tts/node';
-const [av, nodeTts] = await Promise.all([create({ avatar: 'marine', assetsPath }), ZenTtsNode.load({ modelsPath: './tts-models' })]);
+import { ZenTtsNode, ztmUrl } from 'zen-tts/node';
+const [av, nodeTts] = await Promise.all([create({ avatar: 'marine', assetsPath }), ZenTtsNode.load({ model: ztmUrl('marine') })]);
 await renderText(av, nodeTts, 'こんにちは。全力マリンです。', { out: 'marine.mp4' });              // 動画ファイル
 const live = streamText(av, nodeTts, '配信のテストです。', { format: 'jpeg', realtime: true });   // 配信
 ```
@@ -232,7 +233,7 @@ const conversation = new Conversation({
   },
   // 声：渡された文を、できた順に音にする（ZEN-TTS は speakStream がそのまま使えます）
   async *synthesize({ piece, signal }) {
-    for await (const c of tts.speakStream(piece)) yield { pcm: c.audio, sampleRate: c.sampleRate ?? 44100 };
+    for await (const c of tts.speakStream(piece)) yield { pcm: c.pcm, sampleRate: c.sampleRate ?? 44100 };
   },
   // 任意：話し終わりの相づち
   aizuchi: { pick: ({ messages }) => pickAizuchi(messages) },
