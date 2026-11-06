@@ -1,4 +1,4 @@
-# ZEN-LipSync SDK API（1.1.1）
+# ZEN-LipSync SDK API（1.1.2）
 
 組み込み方は [GUIDE.md](GUIDE.md)。この一覧は `node scripts/gen-api-md.mjs` で、型定義から作っています。
 
@@ -21,11 +21,12 @@
 | `WebGPUUnavailableError` | <code>Error + { reason }</code> | WebGPU が使えないとき。 |
 | `OptionsError` | <code>extends Error</code> | オプションが正しくないとき。 |
 | `AvatarPackError` | <code>extends Error</code> | アバターのファイルを読めないとき。 |
-| `VERSION` | <code>const VERSION = "1.1.1";</code> | SDK のバージョン。 |
+| `PatchSync` | <code>PatchSync = 'video' \| 'next' \| 'canvas' \| 'auto'</code> | LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。 |
+| `VERSION` | <code>const VERSION = "1.1.2";</code> | SDK のバージョン。 |
 
 <details><summary>低レベル</summary>
 
-`AutoPairing`、`Avatar`、`AvatarEventName`、`AvatarListing`、`AvatarSet`、`Compositor`、`CpuSentenceModel`、`DrawInfo`、`DrawPhase`、`Emitter`、`FRAMES_PACK_MAGIC`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipPatch`、`LipSyncPlayer`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_CACHE`、`MODEL_FILES`、`ModelOptions`、`NotImplementedError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`PatchSync`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SourceFrame`、`ToneTables`、`View`、`WGSL_MAX_BATCH`、`WgslLips`、`avatarLayout`、`browserPackSource`、`checkAvatarSet`、`checkPackMeta`、`chooseIdlePair`、`dequantFrameI8`、`fetchModel`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`joinAssets`、`lipWeightsLabel`、`listAvatar`、`loadModels`、`loadPackData`、`logMel`、`modelPath`、`parseSentenceWeights`、`readFramesPackIndex`、`requestGpuAdapter`、`resample`、`resolveOptions`、`sentenceLatents`、`setModelHashes`、`sha256Hex`、`speechMask`
+`AutoPairing`、`Avatar`、`AvatarEventName`、`AvatarListing`、`AvatarSet`、`Compositor`、`CpuSentenceModel`、`DrawInfo`、`DrawPhase`、`Emitter`、`FRAMES_PACK_MAGIC`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipPatch`、`LipSyncPlayer`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_CACHE`、`MODEL_FILES`、`ModelOptions`、`NotImplementedError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SourceFrame`、`ToneTables`、`View`、`WGSL_MAX_BATCH`、`WgslLips`、`avatarLayout`、`browserPackSource`、`checkAvatarSet`、`checkPackMeta`、`chooseIdlePair`、`dequantFrameI8`、`fetchModel`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`joinAssets`、`lipWeightsLabel`、`listAvatar`、`loadModels`、`loadPackData`、`logMel`、`modelPath`、`parseSentenceWeights`、`readFramesPackIndex`、`requestGpuAdapter`、`resample`、`resolveOptions`、`sentenceLatents`、`setModelHashes`、`sha256Hex`、`speechMask`
 
 </details>
 

@@ -45,14 +45,14 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.1.1
+npm i github:zenryokukikai/zen-lipsync#v1.1.2
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.1.1
+pnpm add github:zenryokukikai/zen-lipsync#v1.1.2
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.1.1
+yarn add github:zenryokukikai/zen-lipsync#v1.1.2
 ```
 
-- `#v1.1.1` はタグまたはコミットハッシュで固定してください。
+- `#v1.1.2` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。

@@ -13,7 +13,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 /** The public surface per entry: [entry, import path, title, [names]]. Order is the order on the page. */
 const ENTRIES = [
-  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'VERSION']],
+  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'PatchSync', 'VERSION']],
   ['./react', '@zenryokukikai/zen-lipsync/react', 'React', ['ZenLipSync', 'ZenLipSyncProps']],
   ['./node', '@zenryokukikai/zen-lipsync/node', 'Node.js（CPU）', ['create', 'NodeCreateOptions', 'NodeAvatar', 'FramesOptions', 'RenderOptions', 'StreamOptions', 'NodeFrame', 'RenderProgress', 'renderAudioFile', 'RenderAudioFileOptions', 'RenderAudioResult', 'renderAudio', 'openWav', 'WavReader', 'FfmpegMissingError', 'WavFormatError']],
   ['./tts', '@zenryokukikai/zen-lipsync/tts', 'ZEN-TTS で話させる（ブラウザ）', ['speakText', 'SpeakTextOptions', 'TtsEngine', 'splitSentences', 'TTS_SAMPLE_RATE']],
@@ -37,6 +37,7 @@ const DESC_JA = {
   WebGPUUnavailableError: 'WebGPU が使えないとき。',
   OptionsError: 'オプションが正しくないとき。',
   AvatarPackError: 'アバターのファイルを読めないとき。',
+  PatchSync: "LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。",
   VERSION: 'SDK のバージョン。',
   ZenLipSync: 'アバターを置くコンポーネント。',
   ZenLipSyncProps: 'props。',

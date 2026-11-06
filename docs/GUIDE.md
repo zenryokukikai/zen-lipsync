@@ -5,7 +5,7 @@
 ## 入れ方
 
 ```sh
-npm i github:zenryokukikai/zen-lipsync#v1.1.1 github:zenryokukikai/zen-lipsync-avatars#v1.1.1
+npm i github:zenryokukikai/zen-lipsync#v1.1.2 github:zenryokukikai/zen-lipsync-avatars#v1.1.2
 npm i github:zenryokukikai/zen-tts#v1.2.0     # 文章を話させるとき
 ```
 

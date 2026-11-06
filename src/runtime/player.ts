@@ -5,9 +5,9 @@
 // else animation frames). An avatar with several idle loops (avatar.json) can switch loops while idle (switchIdle).
 import { Avatar, Compositor, inferFrames, loadModels, sentenceLatents, speechMask, type LipModels, type LipPatch, type ModelOptions } from './avatar.js';
 import { chooseIdlePair, type IdleSwitchFile } from '../core/idle-switch.js';
-import { logMel, MEL_SAMPLE_RATE } from '../core/mel.js';
+import { logMelYielding, MEL_SAMPLE_RATE, yieldToPage } from '../core/mel.js';
 import { listAvatar, type AvatarSet } from '../core/pack.js';
-import { resample } from '../core/resample.js';
+import { resample, resampleYielding } from '../core/resample.js';
 import { browserPackSource } from './pack-source.js';
 import { WGSL_MAX_BATCH } from './wgsl.js';
 
@@ -93,10 +93,17 @@ export type DrawPhase = 'idle' | 'start' | 'speech' | 'end';
 
 /**
  * How the mouth patch is paired with the presented video frame (the frame callback's mediaTime):
- *  'video' — the patch of that frame alone, on a canvas over the <video> (the default; as 1.0.0);
+ *  'video' — the patch of that frame alone, on a canvas over the <video> (as 1.0.0);
  *  'next'  — the patch of the following frame (for a browser that presents the canvas one video frame late);
- *  'canvas'— the video frame and its patch drawn together on the canvas, every frame (the <video> stays underneath);
+ *  'canvas'— the video frame and its patch drawn together on the canvas, every frame, idle and crossfades too; the
+ *            <video> elements play hidden (opacity 0) as the decode source only (since 1.1.2);
  *  'auto'  — 'video' or 'next', chosen on the device from how late the patch draws are (AutoPairing; the default).
+ * 'video', 'next' and 'auto' show the face from the <video> element and only the mouth from the canvas. Chrome on Windows
+ * can present the <video> element's picture through the GPU's video processing, which a canvas does not get: the mouth
+ * patch then shows in other colours than the face around it (seen: the lower face bluish while speaking; the exact
+ * processing step not identified). 'canvas' draws both from the same decoded frame; a page can choose it
+ * on Windows. Elsewhere the default keeps the <video> shown: the canvas alone showed short stalls right at speech starts
+ * that the <video> did not (Mac Chrome).
  */
 export type PatchSync = 'video' | 'next' | 'canvas' | 'auto';
 
@@ -305,6 +312,9 @@ export class LipSyncPlayer {
     }
     const p = new LipSyncPlayer(loops, lips, canvas, set, pairs, video, standby);
     p.sync = opts.sync ?? 'auto';
+    // 'canvas': every picture is the canvas's (idle, speech, crossfades); the <video> elements are only decoded from, never
+    // shown (opacity 0 still plays and gets frame callbacks)
+    if (p.sync === 'canvas') video.style.opacity = '0';
     initVideo(video);
     loadLoop(video, loops[0]!);
     await video.play().catch(() => undefined);
@@ -544,8 +554,9 @@ export class LipSyncPlayer {
   /** Features, sentence latents and the first frames of a chunk whose frame 0 is shown at walk position walkStart. */
   private async prepareAt(pcm: Float32Array, sampleRate: number, loop: Loop, walkStart: number): Promise<Prepared> {
     const avatar = loop.avatar;
-    const pcm16 = sampleRate === MEL_SAMPLE_RATE ? pcm : resample(pcm, sampleRate, MEL_SAMPLE_RATE);
-    const mel = logMel(pcm16);
+    // in parts that let the page draw in between: the canvas shows every picture, and these took 50-70 ms at once
+    const pcm16 = sampleRate === MEL_SAMPLE_RATE ? pcm : await resampleYielding(pcm, sampleRate, MEL_SAMPLE_RATE);
+    const mel = await logMelYielding(pcm16);
     const zl = await sentenceLatents(this.lips, avatar, { startStep: walkStart, frames: mel.frames, melFrames: mel.melFrames, gather: mel.gather, mel: mel.mel });
     const speech = speechMask(mel.mel, mel.melFrames, mel.gather, mel.frames);
     const strength = patchStrength(speech);
@@ -571,7 +582,11 @@ export class LipSyncPlayer {
     // frames with no patch hold null (nothing drawn): a shared empty bitmap here was closed with the first clip dropped,
     // and every later silent frame then threw on drawImage (InvalidStateError), which ended the frame callbacks and the
     // mouth stopped while the sound went on
-    srcs.forEach((src, i) => p.patches.set(p.f + i, p.strength[p.f + i]! > 0 ? loop.comp.frame(src, pred, i) : null));
+    // one patch at a time with the page let in between (each is 1.5-5 ms of canvas and pixel work on the main thread)
+    for (let i = 0; i < srcs.length; i++) {
+      p.patches.set(p.f + i, p.strength[p.f + i]! > 0 ? loop.comp.frame(srcs[i]!, pred, i) : null);
+      await yieldToPage();
+    }
     p.f += n;
   }
 
@@ -702,7 +717,7 @@ export class LipSyncPlayer {
         // waiting for it) beyond the fade
         const step = (): void => {
           const p = Math.min(1, (performance.now() - t0) / FADE_MS);
-          v.style.opacity = String(p);
+          if (this.pairing !== 'canvas') v.style.opacity = String(p);
           if (p < 1) setTimeout(step, 16); else resolve();
         };
         step();

@@ -104,18 +104,12 @@ export interface LogMel {
   gather: number[];
 }
 
-/** pcm: float samples at 16 kHz in [-1, 1]. */
-export function logMel(pcm: Float32Array): LogMel {
+/** Rows [t0, t1) of the log-mel of pcm into mel (the work of logMel, in parts). */
+function melRows(pcm: Float32Array, mel: Float32Array, t0: number, t1: number, w: { frame: Float64Array; zero: Float64Array; outRe: Float64Array; outIm: Float64Array; mag: Float64Array }): void {
   const { win, filters, ranges } = getTables();
   const pad = N_FFT / 2;
-  const T = 1 + Math.floor(pcm.length / HOP);
-  const mel = new Float32Array(T * N_MELS);
-  const frame = new Float64Array(N_FFT);
-  const zero = new Float64Array(N_FFT);
-  const outRe = new Float64Array(N_FFT);
-  const outIm = new Float64Array(N_FFT);
-  const mag = new Float64Array(BINS);
-  for (let t = 0; t < T; t++) {
+  const { frame, zero, outRe, outIm, mag } = w;
+  for (let t = t0; t < t1; t++) {
     const start = t * HOP - pad;
     for (let n = 0; n < N_FFT; n++) {
       const i = start + n;
@@ -124,14 +118,66 @@ export function logMel(pcm: Float32Array): LogMel {
     fft(frame, zero, N_FFT, 1, 0, outRe, outIm, 0);
     for (let k = 0; k < BINS; k++) mag[k] = Math.hypot(outRe[k]!, outIm[k]!);
     for (let m = 0; m < N_MELS; m++) {
-      const w = filters[m]!;
+      const fw = filters[m]!;
       const [a, b] = ranges[m]!;
       let s = 0;
-      for (let k = a; k < b; k++) s += w[k]! * mag[k]!;
+      for (let k = a; k < b; k++) s += fw[k]! * mag[k]!;
       mel[t * N_MELS + m] = Math.log(Math.max(s, 1e-5));
     }
   }
+}
+
+const melWork = (): Parameters<typeof melRows>[4] => ({ frame: new Float64Array(N_FFT), zero: new Float64Array(N_FFT), outRe: new Float64Array(N_FFT), outIm: new Float64Array(N_FFT), mag: new Float64Array(BINS) });
+
+function melResult(mel: Float32Array, T: number): LogMel {
   const frames = Math.floor((T / MEL_FPS) * VIDEO_FPS);
   const gather = Array.from({ length: frames }, (_, i) => Math.min(Math.max(Math.round((i / VIDEO_FPS) * MEL_FPS), 0), T - 1));
   return { mel, melFrames: T, frames, gather };
+}
+
+/** pcm: float samples at 16 kHz in [-1, 1]. */
+export function logMel(pcm: Float32Array): LogMel {
+  const T = 1 + Math.floor(pcm.length / HOP);
+  const mel = new Float32Array(T * N_MELS);
+  melRows(pcm, mel, 0, T, melWork());
+  return melResult(mel, T);
+}
+
+/**
+ * logMel in parts of MEL_ROWS_PER_PART rows, with yieldToPage() between them (the browser player: the page's main
+ * thread draws every picture, a 50 ms block here showed as a stutter right before the avatar spoke).
+ */
+export async function logMelYielding(pcm: Float32Array): Promise<LogMel> {
+  const T = 1 + Math.floor(pcm.length / HOP);
+  const mel = new Float32Array(T * N_MELS);
+  const w = melWork();
+  for (let t = 0; t < T; t += MEL_ROWS_PER_PART) {
+    melRows(pcm, mel, t, Math.min(T, t + MEL_ROWS_PER_PART), w);
+    await yieldToPage();
+  }
+  return melResult(mel, T);
+}
+
+/** Mel rows per part of logMelYielding (about 1 ms of work on a laptop). */
+const MEL_ROWS_PER_PART = 4;
+
+/** Main-thread work allowed between two pictures before yieldToPage() waits for the next frame (ms). */
+const FRAME_BUDGET_MS = 8;
+let budgetStart = -1;
+
+/**
+ * Called between the parts of a long computation on the page's main thread: once FRAME_BUDGET_MS of work has run since
+ * the last frame, waits for the next animation frame (the browser draws there: the player's canvas shows every
+ * picture, from the video's frame callbacks). A task-queue yield (setTimeout 0, scheduler.yield) did not let Chrome
+ * draw: the canvas still stopped 100 ms right before the avatar spoke. Outside a page, or with the page hidden (no
+ * animation frames), a setTimeout(0).
+ */
+export async function yieldToPage(): Promise<void> {
+  const now = performance.now();
+  if (budgetStart < 0) budgetStart = now;
+  if (now - budgetStart < FRAME_BUDGET_MS) return;
+  const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame;
+  const hidden = (globalThis as { document?: { visibilityState?: string } }).document?.visibilityState === 'hidden';
+  await new Promise<void>((r) => (raf && !hidden ? raf(() => setTimeout(r, 0)) : setTimeout(r, 0)));
+  budgetStart = performance.now();
 }

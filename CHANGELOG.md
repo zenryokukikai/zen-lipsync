@@ -1,5 +1,10 @@
 # 変更履歴
 
+## 1.1.2
+
+- Windows で口元の色がずれる問題を修正（`sync: 'canvas'`）。
+- 話し始めのカクつきを軽減。
+
 ## 1.1.1
 
 - 組み込みガイド [docs/GUIDE.md](docs/GUIDE.md)（そのまま動く 7 つの例）と、API の一覧 [docs/API.md](docs/API.md)（型定義から `scripts/gen-api-md.mjs` で作成）を追加しました。
