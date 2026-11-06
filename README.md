@@ -2,7 +2,7 @@
 
 実写アバターの音声駆動リップシンク SDK。ブラウザ（WebGPU）と Node.js（CPU）で動作します。
 
-バージョン 1.1.0。
+バージョン 1.1.1。
 
 各アバターの voice（ZEN-TTS）を Node.js（CPU）でレンダリングしたサンプルです。
 
@@ -45,14 +45,14 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.1.0
+npm i github:zenryokukikai/zen-lipsync#v1.1.1
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.1.0
+pnpm add github:zenryokukikai/zen-lipsync#v1.1.1
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.1.0
+yarn add github:zenryokukikai/zen-lipsync#v1.1.1
 ```
 
-- `#v1.1.0` はタグまたはコミットハッシュで固定してください。
+- `#v1.1.1` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。
@@ -68,7 +68,7 @@ yarn add github:zenryokukikai/zen-lipsync#v1.1.0
 | TTS 連携 | `@zenryokukikai/zen-lipsync/tts`、`…/tts/node` | ZEN-TTS で文単位に合成しながら、ギャップなくリップシンク。 |
 | 対話 | `@zenryokukikai/zen-lipsync/conversation` | マイクのターン検出 → reply（LLM）→ synthesize（TTS）→ アバター。barge-in、相づち、感情による idle 切り替え、レイテンシ計測。LLM / TTS はアプリが渡す。 |
 
-`VERSION`（`'1.1.0'`）をブラウザ / Node の両エントリから export。パック形式は [docs/AVATAR-PACK.md](docs/AVATAR-PACK.md)。
+`VERSION`（`'1.1.1'`）をブラウザ / Node の両エントリから export。パック形式は [docs/AVATAR-PACK.md](docs/AVATAR-PACK.md)。
 
 ## 使い方（ブラウザ）
 

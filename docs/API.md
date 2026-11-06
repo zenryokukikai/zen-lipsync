@@ -1,4 +1,4 @@
-# ZEN-LipSync SDK API（1.1.0）
+# ZEN-LipSync SDK API（1.1.1）
 
 組み込み方は [GUIDE.md](GUIDE.md)。この一覧は `node scripts/gen-api-md.mjs` で、型定義から作っています。
 
@@ -21,7 +21,7 @@
 | `WebGPUUnavailableError` | <code>Error + { reason }</code> | WebGPU が使えないとき。 |
 | `OptionsError` | <code>extends Error</code> | オプションが正しくないとき。 |
 | `AvatarPackError` | <code>extends Error</code> | アバターのファイルを読めないとき。 |
-| `VERSION` | <code>const VERSION = "1.1.0";</code> | SDK のバージョン。 |
+| `VERSION` | <code>const VERSION = "1.1.1";</code> | SDK のバージョン。 |
 
 <details><summary>低レベル</summary>
 

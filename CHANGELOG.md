@@ -1,5 +1,11 @@
 # 変更履歴
 
+## 1.1.1
+
+- 組み込みガイド [docs/GUIDE.md](docs/GUIDE.md)（そのまま動く 7 つの例）と、API の一覧 [docs/API.md](docs/API.md)（型定義から `scripts/gen-api-md.mjs` で作成）を追加しました。
+- README を ZEN-TTS 1.2.0 に合わせました（会話の例の `speakStream` の結果は `c.pcm`、声は `.ztm` で読み込み）。
+- SDK の動作（コード）は 1.1.0 から変わっていません。
+
 ## 1.1.0
 
 ### アバターパック
