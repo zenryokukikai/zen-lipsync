@@ -29,6 +29,8 @@
 
 利用条件として、アプリ・サイト・作品の利用者が見つけられる場所に、クレジット「リップシンク：ZEN-LipSync（https://zenryokukikai.com ）」を表示してください。URL はリンクにします（[LICENSE.md](LICENSE.md) 3 章）。
 
+**組み込み方は [docs/GUIDE.md](docs/GUIDE.md)**（そのまま動く例）、関数の一覧は [docs/API.md](docs/API.md)。
+
 ## 関連リポジトリ
 
 | リポジトリ | 中身 |
