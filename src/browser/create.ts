@@ -19,6 +19,12 @@ export interface BrowserCreateOptions extends CreateOptions {
   container: HTMLElement;
   /** Default 'contain'. */
   fit?: AvatarFit;
+  /**
+   * Cut-out: the file name of a stacked matte video in every idle loop's pack directory (top half: the frame with the
+   * background's colour taken out, bottom half: the person's matte, same frames and frame rate as the idle video). The
+   * avatar is then drawn with a transparent background (WebGL2), on the same frame callbacks as the idle video.
+   */
+  matte?: string;
 }
 
 /**
@@ -38,7 +44,8 @@ export function avatarLayout(fit: AvatarFit, frameW: number, frameH: number): { 
  * WebGPU, OptionsError on invalid options, AvatarPackError when the avatar's files are missing or invalid.
  */
 export async function create(options: BrowserCreateOptions): Promise<AvatarHandle> {
-  const { container, fit = 'contain', ...rest } = (options ?? {}) as Partial<BrowserCreateOptions>;
+  const { container, fit = 'contain', matte, ...rest } = (options ?? {}) as Partial<BrowserCreateOptions>;
+  if (matte !== undefined && (typeof matte !== 'string' || !/^[\w.-]+$/.test(matte))) throw new OptionsError('create(): "matte" must be a file name in the idle loop\'s directory');
   const o = resolveOptions(rest);
   if (!container || typeof (container as HTMLElement).appendChild !== 'function') throw new OptionsError('create(): "container" must be an HTML element');
   if (fit !== 'contain' && fit !== 'cover') throw new OptionsError('create(): "fit" must be \'contain\' or \'cover\'');
@@ -54,13 +61,16 @@ export async function create(options: BrowserCreateOptions): Promise<AvatarHandl
   // extra idle loops are clones of this video (same style), inserted before the canvas; the canvas stays on top
   const canvas = document.createElement('canvas');
   canvas.style.cssText = `${layout.layer};pointer-events:none`;
-  box.append(video, canvas);
+  // matte: the player composes on a hidden canvas; the cut-out is drawn on `out` (the visible layer)
+  const out = matte ? document.createElement('canvas') : null;
+  if (out) { out.style.cssText = `${layout.layer};pointer-events:none`; canvas.style.display = 'none'; }
+  box.append(video, canvas, ...(out ? [out] : []));
   container.append(box);
   let loaded = 0;
   let player: LipSyncPlayer;
   try {
     player = await LipSyncPlayer.create(o.avatar, video, canvas, {
-      weights: o.weights, idle: o.idle,
+      weights: o.weights, idle: o.idle, ...(matte && out ? { matte: { file: matte, output: out } } : {}),
       onBytes: (n) => { loaded += n; o.onProgress({ loadedBytes: loaded, file: '' }); },
     });
   } catch (e) {
@@ -70,6 +80,7 @@ export async function create(options: BrowserCreateOptions): Promise<AvatarHandl
   const [W, H] = player.avatar.meta.frame_size;
   layout = avatarLayout(fit, W, H);
   box.style.cssText = layout.box;
+  if (out) out.style.cssText = `${layout.layer};pointer-events:none`;
   return new BrowserAvatar(player, box, performance.now() - t0, loaded);
 }
 
