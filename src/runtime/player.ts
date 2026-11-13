@@ -334,6 +334,8 @@ export class LipSyncPlayer {
     loadLoop(video, loops[0]!);
     await video.play().catch(() => undefined);
     p.watchVideo();
+    // matte: show a frame even when the video does not play yet (autoplay held until a gesture)
+    if (p.matte && video.paused) p.drawStill();
     return p;
   }
 
@@ -369,6 +371,22 @@ export class LipSyncPlayer {
     this.shown.video.pause();
     this.standby?.video.pause();
     if (this.ctx.state === 'running') void this.ctx.suspend().catch(() => undefined);
+    this.drawStill();
+  }
+
+  /**
+   * Matte output: draws the frame the paused video shows (no frame callbacks come while paused, and before the first one
+   * the cut-out canvas would stay empty). Without a matte the <video> itself shows the paused frame.
+   */
+  private drawStill(): void {
+    if (!this.matte) return;
+    const v = this.shown.video;
+    if (v.readyState < 2) { v.addEventListener('loadeddata', () => { if (v.paused) this.drawStill(); }, { once: true }); return; }
+    try {
+      this.lastStep = -1;
+      this.onVideoFrame(Math.floor(v.currentTime * this.avatar.meta.fps + 1e-3));
+      this.matte.render();
+    } catch (e) { this.noteDrawError(e); }
   }
 
   /** Stops everything, removes the extra idle <video> elements and closes the audio. */
