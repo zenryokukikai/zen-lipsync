@@ -10,6 +10,7 @@ import { listAvatar, type AvatarSet } from '../core/pack.js';
 import { resample, resampleYielding } from '../core/resample.js';
 import { browserPackSource } from './pack-source.js';
 import { WGSL_MAX_BATCH } from './wgsl.js';
+import { MatteOutput } from './matte.js';
 
 export interface FrameTiming {
   /** Frames drawn so far and the inference time per frame (ms, batch time / frames). */
@@ -230,6 +231,10 @@ export class LipSyncPlayer {
    * shows the patch on the next frame of a moving head (on a nod the nose looks short).
    */
   private sync: PatchSync = 'auto';
+  /** Cut-out output (create({ matte })): the idle loops play their stacked matte video and this draws the cut-out. */
+  private matte: MatteOutput | null = null;
+  /** File name of the stacked matte video in each idle loop's pack directory (null: the pack's own idle video). */
+  private matteFile: string | null = null;
   /** 'auto': the pairing chosen from the patch draws seen. */
   private readonly auto = new AutoPairing();
   /** Frames measured and frames whose expectedDisplayTime was on another clock (not measured), since create(). */
@@ -284,7 +289,7 @@ export class LipSyncPlayer {
    * url: an avatar (avatar.json, one or more idle loops) or an avatar pack directory (one loop). video: the <video>
    * element for the first loop; the other loops get their own <video> elements, inserted after it.
    */
-  static async create(url: string, video: HTMLVideoElement, canvas: HTMLCanvasElement, opts: ModelOptions & { onBytes?: (n: number) => void; idle?: string | null; sync?: PatchSync } = {}): Promise<LipSyncPlayer> {
+  static async create(url: string, video: HTMLVideoElement, canvas: HTMLCanvasElement, opts: ModelOptions & { onBytes?: (n: number) => void; idle?: string | null; sync?: PatchSync; matte?: { file: string; output: HTMLCanvasElement } } = {}): Promise<LipSyncPlayer> {
     const src = browserPackSource(opts.onBytes);
     const listing = await listAvatar(src, url.replace(/\/+$/, ''), opts.idle ?? null);
     const set: AvatarSet | null = listing.set;
@@ -312,6 +317,16 @@ export class LipSyncPlayer {
     }
     const p = new LipSyncPlayer(loops, lips, canvas, set, pairs, video, standby);
     p.sync = opts.sync ?? 'auto';
+    if (opts.matte) {
+      // the matte needs the frame and its patch composed on the canvas first: 'canvas' pairing, and a canvas as tall as
+      // the stacked video (the patch goes to the top half at the same frame coordinates)
+      p.sync = 'canvas';
+      p.matteFile = opts.matte.file;
+      canvas.height = canvas.height * 2;
+      p.matte = new MatteOutput(opts.matte.output, canvas);
+      if (standby) standby.dataset['zenMatte'] = opts.matte.file;
+      video.dataset['zenMatte'] = opts.matte.file;
+    }
     // 'canvas': every picture is the canvas's (idle, speech, crossfades); the <video> elements are only decoded from, never
     // shown (opacity 0 still plays and gets frame callbacks)
     if (p.sync === 'canvas') video.style.opacity = '0';
@@ -365,6 +380,7 @@ export class LipSyncPlayer {
     // the page's own <video> stays (emptied); the one the SDK added is removed (either may be the shown one by now)
     for (const sc of [this.shown, this.standby]) { if (!sc) continue; sc.video.pause(); sc.video.removeAttribute('src'); sc.video.replaceChildren(); if (sc.video !== this.pageVideo) sc.video.remove(); }
     void this.ctx.close().catch(() => undefined);
+    this.matte?.destroy();
     (this.lips as { destroy?: () => void }).destroy?.();
   }
 
@@ -387,6 +403,7 @@ export class LipSyncPlayer {
         // for good while the sound goes on)
         vc.requestVideoFrameCallback!(onFrame);
         try { this.presentFrame(now, md, fps); } catch (e) { this.noteDrawError(e); }
+        try { this.matte?.render(); } catch (e) { this.noteDrawError(e); }
       };
       vc.requestVideoFrameCallback(onFrame);
     } else {
@@ -396,6 +413,7 @@ export class LipSyncPlayer {
         this.framesSeen = true;
         requestAnimationFrame(tick);
         try { this.onVideoFrame(Math.floor(vc.currentTime * fps + 1e-3)); } catch (e) { this.noteDrawError(e); }
+        try { this.matte?.render(); } catch (e) { this.noteDrawError(e); }
       };
       requestAnimationFrame(tick);
     }
@@ -845,7 +863,10 @@ function initVideo(v: HTMLVideoElement): void {
 
 /** Puts a loop's idle video file(s) in v and loads them. */
 function loadLoop(v: HTMLVideoElement, l: Loop): void {
-  v.replaceChildren(...l.avatar.meta.video.map((s) => Object.assign(document.createElement('source'), { src: `${l.avatar.base}/${s.src}`, type: s.type })));
+  // create({ matte }): the loop's stacked matte video (same frames and timing as its idle video) instead of the idle video
+  const matte = v.dataset['zenMatte'];
+  const srcs = matte ? [{ src: matte, type: 'video/webm; codecs="vp9"' }] : l.avatar.meta.video;
+  v.replaceChildren(...srcs.map((s) => Object.assign(document.createElement('source'), { src: `${l.avatar.base}/${s.src}`, type: s.type })));
   v.load();
 }
 
