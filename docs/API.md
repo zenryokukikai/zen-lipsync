@@ -1,4 +1,4 @@
-# ZEN-LipSync SDK API（1.1.2）
+# ZEN-LipSync SDK API（1.1.3）
 
 組み込み方は [GUIDE.md](GUIDE.md)。この一覧は `node scripts/gen-api-md.mjs` で、型定義から作っています。
 
@@ -22,7 +22,7 @@
 | `OptionsError` | <code>extends Error</code> | オプションが正しくないとき。 |
 | `AvatarPackError` | <code>extends Error</code> | アバターのファイルを読めないとき。 |
 | `PatchSync` | <code>PatchSync = 'video' \| 'next' \| 'canvas' \| 'auto'</code> | LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。 |
-| `VERSION` | <code>const VERSION = "1.1.2";</code> | SDK のバージョン。 |
+| `VERSION` | <code>const VERSION = "1.1.3";</code> | SDK のバージョン。 |
 
 <details><summary>低レベル</summary>
 

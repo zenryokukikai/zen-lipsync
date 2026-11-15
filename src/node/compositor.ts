@@ -70,7 +70,7 @@ export class NodeCompositor {
     }
   }
 
-  /** The crop with the box's change, cleaned (DeltaCleaner: skin tint removed, edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
+  /** The crop with the box's change, cleaned (DeltaCleaner: edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
   private withChange(src: SourceImages, pred: Float32Array, index: number): Uint8Array {
     const n = src.crop.length;
     if (this.work.length < n) this.work = new Uint8Array(n);

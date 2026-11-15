@@ -214,7 +214,7 @@ export class Compositor {
     return this.warp(f, img);
   }
 
-  /** The box's change, cleaned (DeltaCleaner: skin tint removed, edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
+  /** The box's change, cleaned (DeltaCleaner: edges faded out), added in the model's colour (video value -> model colour, + change, -> video). */
   private addChange(img: ImageData, f: SourceFrame, pred: Float32Array, index: number): void {
     const a = this.avatar;
     const box = a.meta.box;

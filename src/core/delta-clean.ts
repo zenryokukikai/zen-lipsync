@@ -1,16 +1,12 @@
 // Clean-up of the frame model's change (delta) before it is added to the mouth crop, shared by the browser and Node
 // compositors so both draw the same pixels.
 //
-// 1. Skin tint: on some avatars the model also tints the skin around the mouth while speaking (e.g. green lowered more
-//    than red and blue: a magenta cast that grows over an utterance). On skin-like pixels (small deltas: not lips or
-//    teeth) the delta keeps its brightness (the mean of the three channels) and loses its chroma, so a neutral darkening
-//    such as the shadow of an open mouth stays while the colour cast goes.
-// 2. Box edges: the model's box has hard edges; whatever delta remains on an edge row shows as a straight line where the
-//    box ends inside the patch (the top edge, between nose and upper lip). The delta on each edge, smoothed along the
-//    edge, is faded out over a few pixels into the box, so the delta reaches 0 at the edge.
+// Box edges: the model's box has hard edges; whatever delta remains on an edge row shows as a straight line where the
+// box ends inside the patch (the top edge, between nose and upper lip). The delta on each edge, smoothed along the edge,
+// is faded out over a few pixels into the box, so the delta reaches 0 at the edge. Nothing else is changed: the mouth
+// interior keeps the model's colour as it is (a skin-tint removal, which judged pixels by the size of their change, also
+// took the colour out of small changes inside the mouth; without it the skin around the mouth stays within 0.03 levels).
 
-/** Deltas below this (max |delta| over the channels) count fully as skin; at twice this they are not skin at all. */
-const SKIN_DELTA = 10;
 /** Rows (top, bottom) and columns (left, right) over which an edge's delta is faded out to 0. */
 const EDGE_FEATHER = 16;
 /** Half-width of the smoothing along an edge (pixels), so the fade follows the edge's low-frequency value only. */
@@ -35,28 +31,8 @@ export class DeltaCleaner {
     if (this.work.length !== 3 * plane) this.work = new Float32Array(3 * plane);
     const d = this.work;
     d.set(pred.subarray(index * 3 * plane, (index + 1) * 3 * plane));
-    this.removeSkinTint(d, plane);
     for (let c = 0; c < 3; c++) this.featherEdges(d, c * plane, win);
     return d;
-  }
-
-  /**
-   * Each skin pixel's delta keeps only its brightness: the chroma part (channel minus the mean of the three) is taken
-   * out, fully below SKIN_DELTA, fading to none at 2 x SKIN_DELTA (lips and teeth keep their colour).
-   */
-  private removeSkinTint(d: Float32Array, plane: number): void {
-    const lo = SKIN_DELTA, hi = 2 * SKIN_DELTA;
-    for (let i = 0; i < plane; i++) {
-      const r = d[i]!, g = d[plane + i]!, b = d[2 * plane + i]!;
-      let m = r < 0 ? -r : r;
-      const ga = g < 0 ? -g : g, ba = b < 0 ? -b : b;
-      if (ga > m) m = ga;
-      if (ba > m) m = ba;
-      if (m >= hi) continue;
-      const k = m <= lo ? 1 : (hi - m) / lo;
-      const l = (r + g + b) / 3;
-      d[i] = r - (r - l) * k; d[plane + i] = g - (g - l) * k; d[2 * plane + i] = b - (b - l) * k;
-    }
   }
 
   /** Fades the smoothed value of each edge of the window, one channel (at offset o), to 0 over EDGE_FEATHER pixels. */

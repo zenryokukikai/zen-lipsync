@@ -61,6 +61,17 @@ export interface AvatarSet {
 /** Colour tables of a pack (tone.json): per channel, 256 entries each way. */
 export interface ToneTables { to_video: number[][]; from_video: number[][] }
 
+/**
+ * The tables of a pack without tone.json: the model's change is added to the video pixel as it is. The change is only
+ * the difference the model makes, so no change leaves the idle video untouched, and DeltaCleaner fades it out at the box
+ * edges. Per-channel tables fitted between the model's source frames and the crops shifted the hue of dark pixels (a
+ * blue mouth interior), so new packs leave tone.json out.
+ */
+export function identityTone(): ToneTables {
+  const t = Array.from({ length: 256 }, (_, v) => v);
+  return { to_video: [t, t.slice(), t.slice()], from_video: [t.slice(), t.slice(), t.slice()] };
+}
+
 /** Where avatar files come from. Paths are joined with join(); a path may contain '..'. */
 export interface PackSource {
   /** Joins a directory and a relative path ('a/b' + '../c' -> 'a/c'). */
@@ -169,7 +180,7 @@ export async function loadPackData(src: PackSource, pack: PackRef): Promise<Pack
   const [feat, ref, tone] = await Promise.all([
     src.bytes(src.join(pack.dir, 'features.f16'), fileHash(m, 'features.f16')),
     src.bytes(src.join(pack.dir, 'ref_latent.f32'), fileHash(m, 'ref_latent.f32')),
-    src.json<ToneTables>(src.join(pack.dir, 'tone.json')),
+    m.files['tone.json'] ? src.json<ToneTables>(src.join(pack.dir, 'tone.json')) : Promise.resolve(identityTone()),
   ]);
   const [c, h, w] = m.feat_dims;
   const featSize = c * h * w;

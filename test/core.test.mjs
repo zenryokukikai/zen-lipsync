@@ -38,7 +38,7 @@ test('WebGPUUnavailableError: no navigator.gpu, and no adapter', async () => {
 });
 
 /** A tiny avatar: avatar.json with two packs sharing ../models (2 source frames, feat 2x2x2). */
-async function fixture() {
+async function fixture({ withTone = true } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'zl-pack-'));
   const sha = (b) => createHash('sha256').update(b).digest('hex');
   const feat = Buffer.alloc(2 * 8 * 2);
@@ -49,18 +49,27 @@ async function fixture() {
     await mkdir(d);
     await writeFile(path.join(d, 'features.f16'), feat);
     await writeFile(path.join(d, 'ref_latent.f32'), ref);
-    await writeFile(path.join(d, 'tone.json'), tone);
+    if (withTone) await writeFile(path.join(d, 'tone.json'), tone);
     await writeFile(path.join(d, 'manifest.json'), JSON.stringify({
       format: 'zen-lipsync-avatar', version: 1, name, frame_size: [8, 8], fps: 25, source_frames: 2, walk: [0, 1, 1, 0],
       geo: {}, box: { y0: 0, y1: 1, x0: 0, x1: 1 }, feat_dims: [2, 2, 2], latent_window: 5,
       video: [{ src: 'idle.webm', type: 'video/webm' }], models: '../models',
-      files: { 'features.f16': { bytes: feat.length, sha256: sha(feat) }, 'ref_latent.f32': { bytes: ref.length, sha256: sha(ref) } },
+      files: { 'features.f16': { bytes: feat.length, sha256: sha(feat) }, 'ref_latent.f32': { bytes: ref.length, sha256: sha(ref) },
+        ...(withTone ? { 'tone.json': { bytes: tone.length, sha256: sha(tone) } } : {}) },
     }));
   }
   await mkdir(path.join(root, 'models'));
   await writeFile(path.join(root, 'avatar.json'), JSON.stringify({ format: 'zen-lipsync-avatar-set', version: 1, id: 't', name: { en: 'T' }, sources: { normal: 'normal', angry: 'angry' }, default: 'normal' }));
   return root;
 }
+
+test('pack loader: a pack without tone.json adds the model change as it is (identity colour tables)', async () => {
+  const src = nodePackSource();
+  const withTone = await loadPackData(src, (await listAvatar(src, path.join(await fixture(), 'avatar.json'))).packs[0]);
+  assert.deepEqual(withTone.tone.to_video, [[0], [0], [0]]);
+  const none = await loadPackData(src, (await listAvatar(src, path.join(await fixture({ withTone: false }), 'avatar.json'))).packs[0]);
+  for (const t of [...none.tone.to_video, ...none.tone.from_video]) assert.deepEqual(t, Array.from({ length: 256 }, (_, v) => v));
+});
 
 test('pack loader (Node source): avatar.json, idle order, data sizes, models directory', async () => {
   const root = await fixture();
@@ -418,4 +427,18 @@ test('watchdog: the shown video stopped by the browser (no frame callbacks) is p
     assert.equal(page.paused, false);
     const before = p.lastFrameAt; await new Promise((r) => setTimeout(r, 40)); assert.ok(p.lastFrameAt > before);
   } finally { cleanup(); }
+});
+
+test('DeltaCleaner: a small coloured change inside the box keeps its colour; the box edges fade to 0', async () => {
+  const { DeltaCleaner } = await import('../dist/core/delta-clean.js');
+  const bw = 64, bh = 48, plane = bw * bh;
+  const pred = new Float32Array(3 * plane);
+  // a small coloured change (under 20 on every channel): the kind the removed skin-tint step turned grey
+  for (let i = 0; i < plane; i++) { pred[i] = 4; pred[plane + i] = 12; pred[2 * plane + i] = 8; }
+  const d = new DeltaCleaner(bw, bh).clean(pred, 0, [0, 0, bw, bh]);
+  const mid = (bh / 2) * bw + bw / 2;
+  assert.deepEqual([d[mid], d[plane + mid], d[2 * plane + mid]], [4, 12, 8], 'the change in the middle of the box is untouched');
+  for (const i of [bw / 2, (bh - 1) * bw + bw / 2, (bh / 2) * bw, (bh / 2) * bw + bw - 1]) { // the middle of each edge
+    for (let c = 0; c < 3; c++) assert.ok(Math.abs(d[c * plane + i]) < 1e-4, `edge pixel ${i} channel ${c} faded to 0`);
+  }
 });
