@@ -176,8 +176,10 @@ export async function yieldToPage(): Promise<void> {
   const now = performance.now();
   if (budgetStart < 0) budgetStart = now;
   if (now - budgetStart < FRAME_BUDGET_MS) return;
-  const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame;
-  const hidden = (globalThis as { document?: { visibilityState?: string } }).document?.visibilityState === 'hidden';
+  // a page only: a worker has no page to draw (its animation frames may never come), it just lets other tasks run
+  const doc = (globalThis as { document?: { visibilityState?: string } }).document;
+  const raf = doc ? (globalThis as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame : undefined;
+  const hidden = doc?.visibilityState === 'hidden';
   await new Promise<void>((r) => (raf && !hidden ? raf(() => setTimeout(r, 0)) : setTimeout(r, 0)));
   budgetStart = performance.now();
 }

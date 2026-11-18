@@ -1,4 +1,4 @@
-# ZEN-LipSync SDK API（1.1.3）
+# ZEN-LipSync SDK API（1.2.0）
 
 組み込み方は [GUIDE.md](GUIDE.md)。この一覧は `node scripts/gen-api-md.mjs` で、型定義から作っています。
 
@@ -9,7 +9,12 @@
 | 名前 | 形 | 説明 |
 |---|---|---|
 | `create` | <code>create(options: BrowserCreateOptions): Promise&lt;AvatarHandle&gt;</code> | アバターを読み込み、待機映像を流し始めます。 |
-| `BrowserCreateOptions` | <code>CreateOptions + { container, fit? }</code> | ブラウザの create() のオプション。 |
+| `BrowserCreateOptions` | <code>CreateOptions + { container, fit?, matte? }</code> | ブラウザの create() のオプション。 |
+| `createRenderer` | <code>createRenderer(options: RendererOptions): Promise&lt;LipSyncRenderer&gt;</code> | アバターを読み込み、音声から 1 コマずつ映像を返す renderer を作ります（実時間に縛られない書き出し、Worker でも可）。 |
+| `RendererOptions` | <code>CreateOptions + { matte?, width? }</code> | createRenderer() のオプション（matte・width を含む）。 |
+| `LipSyncRenderer` | <code>{ avatar, idleLoop, width, height, frames(), idle(), destroy() }</code> | frames()・idle()・destroy() を持つ renderer。 |
+| `RenderFramesOptions` | <code>{ idleBeforeMs?, idleAfterMs?, audioSampleRate? }</code> | frames() のオプション（前後の待機・音のレート）。 |
+| `RenderedFrame` | <code>{ index, timeMs, image, speaking, audio, sampleRate }</code> | 書き出しの 1 コマ（VideoFrame と、その分の音）。 |
 | `CreateOptions` | <code>{ avatar, assetsBaseUrl?, weights?, idle?, onProgress? }</code> | create() のオプション。 |
 | `AvatarFit` | <code>AvatarFit = 'contain' \| 'cover'</code> | 枠への収め方（既定 contain）。 |
 | `AvatarHandle` | <code>{ backend, idle, idleLoops, speaking, speak(), speakStream(), setIdle(), on(), stop(), pause(), resume(), frameTiming(), destroy() }</code> | 読み込んだアバター。 |
@@ -22,7 +27,7 @@
 | `OptionsError` | <code>extends Error</code> | オプションが正しくないとき。 |
 | `AvatarPackError` | <code>extends Error</code> | アバターのファイルを読めないとき。 |
 | `PatchSync` | <code>PatchSync = 'video' \| 'next' \| 'canvas' \| 'auto'</code> | LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。 |
-| `VERSION` | <code>const VERSION = "1.1.3";</code> | SDK のバージョン。 |
+| `VERSION` | <code>const VERSION = "1.2.0";</code> | SDK のバージョン。 |
 
 <details><summary>低レベル</summary>
 

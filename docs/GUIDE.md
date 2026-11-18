@@ -5,7 +5,7 @@
 ## 入れ方
 
 ```sh
-npm i github:zenryokukikai/zen-lipsync#v1.1.3 github:zenryokukikai/zen-lipsync-avatars#v1.1.3
+npm i github:zenryokukikai/zen-lipsync#v1.2.0 github:zenryokukikai/zen-lipsync-avatars#v1.1.3
 npm i github:zenryokukikai/zen-tts#v1.2.0     # 文章を話させるとき
 ```
 
@@ -18,6 +18,7 @@ npm i github:zenryokukikai/zen-tts#v1.2.0     # 文章を話させるとき
 |---|---|---|
 | Web ページで話させる | `@zenryokukikai/zen-lipsync` | [ブラウザ](#ブラウザ) |
 | React に入れる | `@zenryokukikai/zen-lipsync/react` | [React](#react) |
+| ブラウザの中で動画に書き出す | `@zenryokukikai/zen-lipsync`（`createRenderer`） | [書き出し](#書き出しブラウザ) |
 | 音声ファイル → MP4 | `@zenryokukikai/zen-lipsync/node` | [MP4](#mp4nodejs) |
 | サーバーで作りながら配信 | `@zenryokukikai/zen-lipsync/node` | [配信](#配信nodejs) |
 | 文章を話させる（ZEN-TTS） | `…/tts`、`…/tts/node` | [文章](#文章を話させるzen-tts) |
@@ -117,6 +118,26 @@ createRoot(document.getElementById('root')).render(<App />);
 ```
 
 - `onReady` に、ブラウザの例の `avatar` と同じものが渡されます。
+
+## 書き出し（ブラウザ）
+
+利用者の端末で、話す動画を 1 コマずつ作ります（実時間より速く、音は鳴らしません。Web Worker の中でも動きます）。`f.image`（`VideoFrame`）を `VideoEncoder` に渡せば MP4 にできます。
+
+```js
+import { createRenderer } from '@zenryokukikai/zen-lipsync';
+
+const r = await createRenderer({ assetsBaseUrl: '/zen-lipsync-avatars/', avatar: 'avatars/marine/avatar.json' });
+const pcm = new Float32Array(await (await fetch('/voice.f32')).arrayBuffer());   // モノラル、44.1 kHz の例
+for await (const f of r.frames({ pcm, sampleRate: 44100 }, { idleBeforeMs: 400, idleAfterMs: 400 })) {
+  // f.index・f.timeMs・f.speaking、f.audio（このコマの分の音）
+  ctx.drawImage(f.image, 0, 0);   // または videoEncoder.encode(f.image)
+  f.image.close();
+}
+r.destroy();
+```
+
+- 掛け合いの間の待機のコマは `r.idle(n)` で受け取れます。
+- 背景を抜くときは `createRenderer({ …, matte: 'matte.webm' })`（各待機ループのパックに縦 2 段の映像を置きます）。
 
 ## MP4（Node.js）
 

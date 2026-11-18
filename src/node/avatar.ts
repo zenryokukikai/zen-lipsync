@@ -8,7 +8,7 @@ import { unlink } from 'node:fs/promises';
 import type { ChildProcess } from 'node:child_process';
 import { chooseIdlePair, type IdleSwitchFile } from '../core/idle-switch.js';
 import { inferFrames, sentenceLatents, speechMask, type LipModels } from '../core/lipsync.js';
-import { resample } from '../core/resample.js';
+import { framesOfMs, OutputTimeline, speechChunks as toChunks } from '../core/output-timeline.js';
 import { OptionsError } from '../core/errors.js';
 import { Emitter } from '../core/events.js';
 import type { AvatarHandle, SpeechAudio } from '../core/types.js';
@@ -149,36 +149,16 @@ export class NodeAvatar implements AvatarHandle {
   }
 
   private async *produce(chunks: AsyncIterable<SpeechAudio>, opts: FramesOptions): AsyncGenerator<NodeFrame> {
-    let rate = opts.audioSampleRate ?? 0;
-    let index = 0;
-    // the output audio: speech segments placed on the output timeline (samples at rate); idle time is silence.
-    // Chunks follow each other without a gap (each starts where the previous one's audio ended).
-    const segs: { start: number; data: Float32Array }[] = [];
-    let outSamples = 0; // samples given to frames so far
-    let audioEnd = 0; // end of the last speech segment
+    // frame numbers and the output audio (chunks laid end to end, silence on idle frames): shared with the browser renderer
+    const tl = new OutputTimeline(opts.audioSampleRate ?? 0);
     const realtime = opts.realtime ?? false;
     const t0 = performance.now() + (realtime ? (opts.startDelayMs ?? 600) : 0);
     const pace = async (): Promise<void> => {
       if (!realtime) return;
-      const due = t0 + (index * 1000) / FPS - performance.now();
+      const due = t0 + (tl.frameIndex * 1000) / FPS - performance.now();
       if (due > 1) await new Promise((r) => setTimeout(r, due));
     };
-    const frameAudio = (): Float32Array => {
-      const end = Math.round(((index + 1) * rate) / FPS);
-      const a = new Float32Array(Math.max(0, end - outSamples));
-      for (const s of segs) {
-        const from = Math.max(outSamples, s.start), to = Math.min(end, s.start + s.data.length);
-        for (let j = from; j < to; j++) a[j - outSamples] = s.data[j - s.start]!;
-      }
-      while (segs.length && segs[0]!.start + segs[0]!.data.length <= end) segs.shift();
-      outSamples = end;
-      return a;
-    };
-    const frame = (rgb: Buffer, speaking: boolean): NodeFrame => {
-      const f: NodeFrame = { index, timeMs: (index * 1000) / FPS, width: this.width, height: this.height, rgb, speaking, audio: frameAudio(), sampleRate: rate };
-      index++;
-      return f;
-    };
+    const frame = (rgb: Buffer, speaking: boolean): NodeFrame => ({ ...tl.next(), width: this.width, height: this.height, rgb, speaking });
 
     // each chunk is prepared (resampled, log-mel, sentence model) while the previous one is drawn
     const it = chunks[Symbol.asyncIterator]();
@@ -192,10 +172,10 @@ export class NodeAvatar implements AvatarHandle {
     type Next = { c: SpeechAudio; p: Prepared } | null;
     const fetchNext = (startStep: number): Promise<Next> => it.next().then(async (r) => (r.done ? null : { c: r.value, p: await prepare(r.value, startStep) }));
 
-    const before = Math.round(((opts.idleBeforeMs ?? 0) * FPS) / 1000);
+    const before = framesOfMs(opts.idleBeforeMs ?? 0);
     let pending: Promise<Next> = fetchNext(this.step + before);
     pending.catch(() => undefined);
-    for (let i = 0; i < before; i++) { if (!rate) rate = 48000; await pace(); yield frame(await this.baseImage(), false); }
+    for (let i = 0; i < before; i++) { await pace(); yield frame(await this.baseImage(), false); }
     this.events.emit('speechstart', { frames: 0 });
     let interrupted = true;
     try {
@@ -207,7 +187,6 @@ export class NodeAvatar implements AvatarHandle {
           void pending.then(() => { ready = true; }, () => { ready = true; });
           await new Promise((r) => setImmediate(r));
           while (!ready) {
-            if (!rate) rate = 48000;
             await pace();
             if (ready) break;
             yield frame(await this.baseImage(), false);
@@ -220,13 +199,8 @@ export class NodeAvatar implements AvatarHandle {
         } else got = await pending;
         if (!got) break;
         const p = got.p;
-        if (!rate) rate = p.rate;
-        const audio = p.rate === rate ? p.audio : resample(p.audio, p.rate, rate);
-        const startSample = Math.max(audioEnd, Math.round((index * rate) / FPS));
-        segs.push({ start: startSample, data: audio });
-        audioEnd = startSample + audio.length;
         // frames of this chunk: up to the end of its audio on the output timeline (no drift over many chunks)
-        const n = Math.max(0, Math.round((audioEnd * FPS) / rate) - index);
+        const n = tl.addChunk(p.audio, p.rate);
         // the next chunk is prepared now, planned to start right after this one
         pending = fetchNext(this.step + n);
         pending.catch(() => undefined);
@@ -257,8 +231,7 @@ export class NodeAvatar implements AvatarHandle {
     } finally {
       this.events.emit('speechend', { interrupted });
     }
-    if (!rate) rate = 48000;
-    const after = Math.max(Math.round(((opts.idleAfterMs ?? 0) * FPS) / 1000), Math.ceil(((audioEnd - outSamples) * FPS) / rate));
+    const after = tl.framesAfter(opts.idleAfterMs ?? 0);
     for (let i = 0; i < after; i++) { await pace(); yield frame(await this.baseImage(), false); }
   }
 
@@ -386,12 +359,6 @@ export class NodeAvatar implements AvatarHandle {
   }
 }
 
-async function* toChunks(input: SpeechAudio | AsyncIterable<SpeechAudio> | Iterable<SpeechAudio>): AsyncGenerator<SpeechAudio> {
-  if (input && (input as SpeechAudio).pcm instanceof Float32Array) { yield input as SpeechAudio; return; }
-  if (input && typeof (input as AsyncIterable<SpeechAudio>)[Symbol.asyncIterator] === 'function') { yield* input as AsyncIterable<SpeechAudio>; return; }
-  if (input && typeof (input as Iterable<SpeechAudio>)[Symbol.iterator] === 'function') { yield* input as Iterable<SpeechAudio>; return; }
-  throw new OptionsError('audio must be { pcm: Float32Array, sampleRate } or an (async) iterable of them');
-}
 
 /** ffmpeg with video (rgb24, stdin) and audio (f32le mono, fd 3). */
 class Encoder {

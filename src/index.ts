@@ -2,6 +2,7 @@
 // The browser entry needs WebGPU (create() rejects with WebGPUUnavailableError without it); for servers and CPUs
 // use zen-lipsync/node.
 export { create, avatarLayout, type BrowserCreateOptions, type AvatarFit } from './browser/create.js';
+export { createRenderer, LipSyncRenderer, type RendererOptions, type RenderedFrame, type RenderFramesOptions } from './browser/renderer.js';
 export * from './core/index.js';
 // Lower-level building blocks of the WebGPU runtime.
 export { LipSyncPlayer, AutoPairing, type DrawInfo, type DrawPhase, type PatchSync } from './runtime/player.js';

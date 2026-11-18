@@ -13,7 +13,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 /** The public surface per entry: [entry, import path, title, [names]]. Order is the order on the page. */
 const ENTRIES = [
-  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'PatchSync', 'VERSION']],
+  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'createRenderer', 'RendererOptions', 'LipSyncRenderer', 'RenderFramesOptions', 'RenderedFrame', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'PatchSync', 'VERSION']],
   ['./react', '@zenryokukikai/zen-lipsync/react', 'React', ['ZenLipSync', 'ZenLipSyncProps']],
   ['./node', '@zenryokukikai/zen-lipsync/node', 'Node.js（CPU）', ['create', 'NodeCreateOptions', 'NodeAvatar', 'FramesOptions', 'RenderOptions', 'StreamOptions', 'NodeFrame', 'RenderProgress', 'renderAudioFile', 'RenderAudioFileOptions', 'RenderAudioResult', 'renderAudio', 'openWav', 'WavReader', 'FfmpegMissingError', 'WavFormatError']],
   ['./tts', '@zenryokukikai/zen-lipsync/tts', 'ZEN-TTS で話させる（ブラウザ）', ['speakText', 'SpeakTextOptions', 'TtsEngine', 'splitSentences', 'TTS_SAMPLE_RATE']],
@@ -39,6 +39,11 @@ const DESC_JA = {
   AvatarPackError: 'アバターのファイルを読めないとき。',
   PatchSync: "LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。",
   VERSION: 'SDK のバージョン。',
+  createRenderer: 'アバターを読み込み、音声から 1 コマずつ映像を返す renderer を作ります（実時間に縛られない書き出し、Worker でも可）。',
+  RendererOptions: 'createRenderer() のオプション（matte・width を含む）。',
+  LipSyncRenderer: 'frames()・idle()・destroy() を持つ renderer。',
+  RenderFramesOptions: 'frames() のオプション（前後の待機・音のレート）。',
+  RenderedFrame: '書き出しの 1 コマ（VideoFrame と、その分の音）。',
   ZenLipSync: 'アバターを置くコンポーネント。',
   ZenLipSyncProps: 'props。',
   NodeCreateOptions: 'create() のオプション。',

@@ -45,14 +45,14 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.1.3
+npm i github:zenryokukikai/zen-lipsync#v1.2.0
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.1.3
+pnpm add github:zenryokukikai/zen-lipsync#v1.2.0
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.1.3
+yarn add github:zenryokukikai/zen-lipsync#v1.2.0
 ```
 
-- `#v1.1.3` はタグまたはコミットハッシュで固定してください。
+- `#v1.2.0` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。
@@ -112,6 +112,35 @@ React：`<ZenLipSync avatar="/avatars/marine/avatar.json" onReady={(avatar) => a
 **待機映像の切り替え（`setIdle`）**：待機ループがいくつあっても、`<video>` は 2 つ（表示中と待機用）だけ使います。待機用の `<video>` に次のループを読み込み、ペアのフレームへシークして再生し、実際にコマが出てからクロスフェードして、2 つの役割を入れ替えます。iOS の Safari（低電力モードなど）はタップの外での `play()` を断ることがあるため、`resume()` はユーザーのタップの中で呼んでください（2 つの `<video>` をそこで一度再生します）。読み込み・シーク・再生のどれかが時間内に終わらないときは、切り替えをやめて今のループのまま続けます（`setIdle` は `false`）。表示中の `<video>` からコマが 0.7 秒届かないときは、再生し直します。
 
 動くブラウザ：WebGPU が使えるもの（Chrome / Edge 113 以降、Safari 26 以降、Android の Chrome など）。細かく使う場合：`LipSyncPlayer`、`Avatar`、`loadModels`、`logMel`、`sentenceLatents`、`inferFrames`、`Compositor`（`src/index.ts`）。
+
+### 動画に書き出す（`createRenderer`）
+
+ブラウザの中で、音声から口の動いた映像を 1 コマずつ受け取ります（Node の `frames()` と同じ並び）。実時間より速く計算し、音は鳴らしません。DOM を使わないので Web Worker の中でも動きます。WebCodecs の `VideoEncoder`（や mediabunny など）で MP4 にできます。
+
+```ts
+import { createRenderer } from '@zenryokukikai/zen-lipsync';
+
+const r = await createRenderer({ assetsBaseUrl: 'https://cdn.example.com/zen-lipsync-avatars/', avatar: 'avatars/marine/avatar.json' });
+for await (const f of r.frames({ pcm, sampleRate: 44100 }, { idleBeforeMs: 400, idleAfterMs: 400 })) {
+  // f.index（0 から）、f.timeMs、f.image（VideoFrame）、f.speaking、f.audio（Float32Array）、f.sampleRate
+  encoder.encode(f.image); f.image.close();
+}
+for await (const f of r.idle(50)) { /* 待機のコマだけ 50 個（相手が話している間など）*/ f.image.close(); }
+r.destroy();
+```
+
+| API | 説明 |
+|---|---|
+| `createRenderer({ avatar, assetsBaseUrl?, idle?, weights?, matte?, width?, onProgress? })` | アバターを読み込みます。`matte`：縦 2 段の切り抜き映像のファイル名（背景を抜いた RGBA になります）。`width`：出力の幅（高さは縦横比のまま）。 |
+| `frames(speech, { idleBeforeMs?, idleAfterMs?, audioSampleRate? })` | 1 コマずつ返します（`for await`）。`speech` は 1 つの音声か、チャンクの（非同期）イテレータ。音声 N 秒で `ceil(N×25)` ＋前後の待機のコマ。 |
+| `idle(n, { audioSampleRate? })` | 待機のコマだけを n 個返します（音は無音）。待機の歩みは `frames()` と続きます。 |
+| `destroy()` | GPU のバッファ・デコーダーを片付けます。 |
+
+- `f.image` は `VideoFrame` です。使い終わったら `close()` してください。`matte` ありのときはアルファ付きで、canvas に描けばそのまま透明に重なり、`copyTo`／`getImageData` で読むと色は straight（アルファを掛けていない値）です。
+- 1 つの renderer は同時に 1 本だけ出力します（2 人の掛け合いでは、アバターごとに 1 つ作ってください）。
+- 待機映像のコマは WebCodecs（`VideoDecoder`）で WebM（VP9）を読み、コマ番号どおりに取り出します。口元の重ね方はリアルタイム再生と同じで、同じ音声・同じコマなら画素まで同じです。
+- 速さ（1264×720）：MacBook Pro（M3 Max）の Chrome で、matte なし約 200 fps（2 分の音声を 15.5 秒、実時間の 8 倍。5 回測って 1 回だけ 91 fps＝3.6 倍、理由は未確認）、matte あり 184〜198 fps（7.4〜7.9 倍）。最大メモリ（ページのプロセス）440〜557 MB、GPU プロセス約 210 MB。iPhone・Android は測っていません。
+- iPhone（Safari 26 以降）：WebGPU と WebCodecs の `VideoDecoder` は Safari 26 にありますが、この SDK で VP9 の WebM を `VideoDecoder` で読めるか、Worker の中で WebGPU が使えるかは、実機で確かめていません。
 
 ## 使い方（サーバー・Node.js）
 
@@ -276,6 +305,7 @@ const mic = await openMic({ conversation });   // 話し始めで音を止め、
 | iPhone 16 Pro、Safari、WebGPU | 約 131 fps |
 | Pixel 9、Chrome、WebGPU | 約 61 fps |
 | MacBook Pro（M3 Max）、ブラウザ、WebGPU | 約 1,060 fps |
+| MacBook Pro（M3 Max）、Chrome、`createRenderer` の書き出し（1264×720、待機映像のデコード・合成込み） | 約 200 fps（matte あり 184〜198 fps） |
 
 ネイティブの CPU 版は `native/x86/build.sh` でビルドし、`native/x86/bench.sh <アバターの models ディレクトリ>` で測れます（AVX-512 VNNI が使える x86-64 CPU）。WebAssembly 版（`cpu/`）は `scripts/build-cpu-wasm.sh`（Emscripten）で作ります。Node のネイティブ版（AVX-512 VNNI／AVX2／SSE4.1 を自動で選ぶ）は `native/node/build.sh` です。
 

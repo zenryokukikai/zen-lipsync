@@ -20,9 +20,10 @@ export class MatteOutput {
   private readonly gl: WebGL2RenderingContext;
   private readonly tex: WebGLTexture;
 
-  /** out: the visible canvas (frame size); source: the player's 2D canvas (frame width x twice the frame height). */
-  constructor(readonly out: HTMLCanvasElement, private readonly source: HTMLCanvasElement) {
-    const gl = out.getContext('webgl2', { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
+  /** out: the visible canvas (frame size); source: the player's 2D canvas (frame width x twice the frame height). Offscreen
+   *  canvases work too (the offline renderer). */
+  constructor(readonly out: HTMLCanvasElement | OffscreenCanvas, private readonly source: HTMLCanvasElement | OffscreenCanvas) {
+    const gl = out.getContext('webgl2', { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('ZEN-LipSync: the matte output needs WebGL2');
     this.gl = gl;
     const sh = (type: number, src: string): WebGLShader => {

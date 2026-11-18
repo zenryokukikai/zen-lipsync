@@ -10,6 +10,7 @@ import { listAvatar, type AvatarSet } from '../core/pack.js';
 import { resample, resampleYielding } from '../core/resample.js';
 import { browserPackSource } from './pack-source.js';
 import { WGSL_MAX_BATCH } from './wgsl.js';
+import { applyStrength, patchStrength } from '../core/patch-strength.js';
 import { MatteOutput } from './matte.js';
 
 export interface FrameTiming {
@@ -178,26 +179,6 @@ const WATCHDOG_CHECK_MS = 250;
 
 /** Why an idle switch was given up (switchFailures.reasons). */
 export type SwitchFailure = 'cancelled' | 'load-timeout' | 'play-refused' | 'no-frame' | 'seek-timeout';
-/**
- * Silent frames right after speech over which the model's change fades out (its own output on those frames, scaled by
- * 5/6 .. 1/6), drawn on the source frame each was made for. Without it the patch came off in one frame when speech
- * stopped and the face jumped back to the idle video (the skin around the mouth brightened at once).
- * Speech frames are always drawn at full strength: nothing fades in or out before the sound does.
- */
-const FADE_OUT_FRAMES = 5;
-
-/** Per frame: 1 on speech, (FADE_OUT_FRAMES + 1 - k) / (FADE_OUT_FRAMES + 1) on the k-th silent frame after speech, else 0. */
-export function patchStrength(speech: readonly boolean[]): Float32Array {
-  const out = new Float32Array(speech.length);
-  let since = Infinity;
-  for (let f = 0; f < speech.length; f++) {
-    if (speech[f]) { out[f] = 1; since = 0; continue; }
-    since++;
-    out[f] = since <= FADE_OUT_FRAMES ? (FADE_OUT_FRAMES + 1 - since) / (FADE_OUT_FRAMES + 1) : 0;
-  }
-  return out;
-}
-
 export class LipSyncPlayer {
   readonly lips: LipModels;
   private readonly loops = new Map<string, Loop>();
@@ -610,11 +591,7 @@ export class LipSyncPlayer {
     const [pred, srcs] = await Promise.all([inferFrames(this.lips, avatar, us, p.zl, p.f, n, drawn), Promise.all(us.map((u) => avatar.frame(u)))]);
     this.timing.inferMs += performance.now() - tb;
     this.timing.frames += n;
-    const plane = pred.length / n;
-    for (let i = 0; i < n; i++) {
-      const k = p.strength[p.f + i]!;
-      if (k > 0 && k < 1) { const d = pred.subarray(i * plane, (i + 1) * plane); for (let j = 0; j < d.length; j++) d[j]! *= k; }
-    }
+    applyStrength(pred, p.strength, p.f, n);
     // frames with no patch hold null (nothing drawn): a shared empty bitmap here was closed with the first clip dropped,
     // and every later silent frame then threw on drawImage (InvalidStateError), which ended the frame callbacks and the
     // mouth stopped while the sound went on
@@ -882,7 +859,7 @@ function initVideo(v: HTMLVideoElement): void {
 /** Puts a loop's idle video file(s) in v and loads them. */
 function loadLoop(v: HTMLVideoElement, l: Loop): void {
   // create({ matte }): the loop's stacked matte video (same frames and timing as its idle video) instead of the idle video
-  const matte = v.dataset['zenMatte'];
+  const matte = v.dataset?.['zenMatte'];
   const srcs = matte ? [{ src: matte, type: 'video/webm; codecs="vp9"' }] : l.avatar.meta.video;
   v.replaceChildren(...srcs.map((s) => Object.assign(document.createElement('source'), { src: `${l.avatar.base}/${s.src}`, type: s.type })));
   v.load();
@@ -935,3 +912,4 @@ export function playVideo(v: HTMLVideoElement, ms: number): Promise<'ok' | 'refu
 }
 
 export { resample };
+export { patchStrength };
