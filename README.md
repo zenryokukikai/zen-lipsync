@@ -131,6 +131,7 @@ await avatar.play(line);                                       // すぐに鳴�
 - 鳴り始めの時刻は `speechstart` の `audioTime`・`performanceTime` でわかります。この端末の音の出口の遅れ（測った値）は、`speechstart` の `outputDelayMs` と、準備した台詞の `outputDelayMs` にあります。
 - `play()` は `speak()` と同じく、話している途中の台詞を止めて話します。準備した台詞は、準備したアバターで 1 回だけ鳴らせます。2 回目や、別のアバターで鳴らすと `OptionsError` です。使わなかった台詞は `dispose()` で捨てます。
 - 2 人の掛け合いでは、アバターごとに `create()` し、それぞれで `prepare()`・`play()` します。
+- 既知の問題：Android の Chrome（Pixel）では、`play()` の口と声が、台詞によって約 1 コマずれることがあります。また、口が動き始めるまでに最大 200 ms かかることがあります（変更履歴の 1.3.0 を見てください）。
 - 速さ（MacBook Pro（M3 Max）の Chrome、マリンとキッカが 1.6 秒の台詞を交互に 24 行、台詞の 1.5 秒前に `prepare()`。3 回測った範囲）：
 
   | | `play()` | `speak()` |
