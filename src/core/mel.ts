@@ -130,9 +130,18 @@ function melRows(pcm: Float32Array, mel: Float32Array, t0: number, t1: number, w
 const melWork = (): Parameters<typeof melRows>[4] => ({ frame: new Float64Array(N_FFT), zero: new Float64Array(N_FFT), outRe: new Float64Array(N_FFT), outIm: new Float64Array(N_FFT), mag: new Float64Array(BINS) });
 
 function melResult(mel: Float32Array, T: number): LogMel {
-  const frames = Math.floor((T / MEL_FPS) * VIDEO_FPS);
-  const gather = Array.from({ length: frames }, (_, i) => Math.min(Math.max(Math.round((i / VIDEO_FPS) * MEL_FPS), 0), T - 1));
-  return { mel, melFrames: T, frames, gather };
+  return { mel, melFrames: T, ...melGather(T, 0) };
+}
+
+/**
+ * Video frames of a log-mel of T rows and the mel row of each, when video frame 0 is shown `shift` video frames after
+ * the sound starts (0: frame 0 starts with the sound; 0.5: half a frame later). Each frame takes the row at the start
+ * of its time on screen; rows before the sound or after its end are clamped to the first / last.
+ */
+export function melGather(T: number, shift: number): { frames: number; gather: number[] } {
+  const frames = Math.max(0, Math.floor((T / MEL_FPS) * VIDEO_FPS - shift));
+  const gather = Array.from({ length: frames }, (_, i) => Math.min(Math.max(Math.round(((i + shift) / VIDEO_FPS) * MEL_FPS), 0), T - 1));
+  return { frames, gather };
 }
 
 /** pcm: float samples at 16 kHz in [-1, 1]. */

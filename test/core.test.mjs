@@ -241,7 +241,7 @@ test('LipSyncPlayer: silent frames draw nothing and every patch bitmap is closed
   const strength = patchStrength(speech);
   const patches = new Map();
   for (let f = 0; f < 40; f++) patches.set(f, strength[f] > 0 ? { bitmap: bitmap(), x: 0, y: 0 } : null);
-  const clip = { soundAt: 0, duration: 40 / 25, frames: 40, walkStart: 0, patches, prep: { speech, strength } };
+  const clip = { soundAt: 0, duration: 40 / 25, frames: 40, walkStart: 0, patches, prep: { speech, strength, shift: 0 } };
   p.clip = clip;
   for (let f = 0; f < 40; f++) { p.ctx.currentTime = f / 25; p.onVideoFrame(f); }
   assert.equal(drawn.length, [...strength].filter((k) => k > 0).length);

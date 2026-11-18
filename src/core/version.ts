@@ -1,2 +1,2 @@
 // ZEN-LipSync SDK release version (kept in step with package.json "version").
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';

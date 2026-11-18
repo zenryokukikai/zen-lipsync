@@ -45,14 +45,14 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.2.0
+npm i github:zenryokukikai/zen-lipsync#v1.3.0
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.2.0
+pnpm add github:zenryokukikai/zen-lipsync#v1.3.0
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.2.0
+yarn add github:zenryokukikai/zen-lipsync#v1.3.0
 ```
 
-- `#v1.2.0` はタグまたはコミットハッシュで固定してください。
+- `#v1.3.0` はタグまたはコミットハッシュで固定してください。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。
@@ -87,6 +87,8 @@ try {
   avatar.on('speechend', ({ interrupted }) => console.log('話し終わり', interrupted));
   await avatar.speak({ pcm, sampleRate: 44100 });       // モノラル Float32Array、任意のサンプリングレート
   await avatar.speakStream(chunks);                     // 少しずつ届く音声（AsyncIterable<{ pcm, sampleRate }>）
+  const line = await avatar.prepare({ pcm, sampleRate }); // 前もって準備（下の「決めた時刻に話させる」）
+  await avatar.play(line);                              // すぐに鳴らす
   await avatar.setIdle('angry');
   avatar.stop(); avatar.pause(); avatar.resume();
   console.log(avatar.frameTiming());                    // { frames, inferMsPerFrame }
@@ -102,8 +104,9 @@ React：`<ZenLipSync avatar="/avatars/marine/avatar.json" onReady={(avatar) => a
 |---|---|
 | `create({ container, avatar, fit?, weights?, idle?, onProgress? })` | アバターを読み込み、待機映像を流し始めます。`fit`：`'contain'`（既定）・`'cover'`。`weights`：`'i8'`（既定）・`'f32'`・`'i8q'`。 |
 | `speak(audio)` / `speakStream(chunks)` | 話させます。鳴り終わると解決します。`speakStream` は届いた順につなげて話します。 |
+| `prepare(audio)` / `play(prepared)` | 前もって準備し、決めた時刻にすぐ鳴らします（下の「決めた時刻に話させる」）。 |
 | `setIdle(name)` | 待機映像を切り替えます（話していない間だけ。似たフレームで 0.3 秒のクロスフェード）。 |
-| `on(event, listener)` | `ready`・`speechstart`・`speechend`・`idlechange`・`error`。戻り値の関数で解除します。 |
+| `on(event, listener)` | `ready`・`speechstart`・`speechend`・`idlechange`・`error`。戻り値の関数で解除します。`speechstart` には、音が耳に届く時刻（`audioTime`：アバターの AudioContext の時計、`performanceTime`：`performance.now()` の時計）と、この端末の音の出口の遅れ（`outputDelayMs`）が付きます。 |
 | `stop()` / `pause()` / `resume()` / `destroy()` | 止める（待機映像は続く）・一時停止・再開・解放。 |
 | エラー | `WebGPUUnavailableError`（`reason`：`'no-navigator-gpu'`・`'no-adapter'`）、`OptionsError`、`AvatarPackError` |
 
@@ -112,6 +115,33 @@ React：`<ZenLipSync avatar="/avatars/marine/avatar.json" onReady={(avatar) => a
 **待機映像の切り替え（`setIdle`）**：待機ループがいくつあっても、`<video>` は 2 つ（表示中と待機用）だけ使います。待機用の `<video>` に次のループを読み込み、ペアのフレームへシークして再生し、実際にコマが出てからクロスフェードして、2 つの役割を入れ替えます。iOS の Safari（低電力モードなど）はタップの外での `play()` を断ることがあるため、`resume()` はユーザーのタップの中で呼んでください（2 つの `<video>` をそこで一度再生します）。読み込み・シーク・再生のどれかが時間内に終わらないときは、切り替えをやめて今のループのまま続けます（`setIdle` は `false`）。表示中の `<video>` からコマが 0.7 秒届かないときは、再生し直します。
 
 動くブラウザ：WebGPU が使えるもの（Chrome / Edge 113 以降、Safari 26 以降、Android の Chrome など）。細かく使う場合：`LipSyncPlayer`、`Avatar`、`loadModels`、`logMel`、`sentenceLatents`、`inferFrames`、`Compositor`（`src/index.ts`）。
+
+### 決めた時刻に話させる（`prepare` / `play`）
+
+`speak()` は、口元の最初のコマを作り終え、待機映像がそのコマに来たときに音を鳴らします。そのため、呼んでから鳴るまでの時間が毎回変わります（MacBook Pro（M3 Max）の Chrome で 0.53〜1.09 秒）。動画の再生位置などの外の時計に合わせて、何人かが順に話すときは、`prepare()` で前もって準備し、時刻ちょうどに `play()` を呼びます。
+
+```ts
+const line = await avatar.prepare({ pcm, sampleRate: 44100 }); // 台詞の 1〜2 秒前（ほかの台詞を話している間でも可）
+// …台詞の時刻に
+await avatar.play(line);                                       // すぐに鳴り、口も次のコマから動きます
+```
+
+- `prepare()` は、音の特徴の計算、音のデータ作り、音の出口の起動（ブラウザによっては 2 秒ほどかかります）をします。そのアバターの最初の台詞のときや、しばらく話していなかったときは、この端末でモデルを一度動かして温めます。そのため、最初の `play()` も 2 回目以降と同じ速さで鳴ります。
+- `play()` は、アバターの AudioContext で音をすぐ鳴らします。口元は、音を鳴らしたあとに作り、間に合う最初のコマから音に合わせて描きます。その前のコマは待機映像のままです。台詞が無音から始まるときは、無音の間に間に合います。
+- 鳴り始めの時刻は `speechstart` の `audioTime`・`performanceTime` でわかります。この端末の音の出口の遅れ（測った値）は、`speechstart` の `outputDelayMs` と、準備した台詞の `outputDelayMs` にあります。
+- `play()` は `speak()` と同じく、話している途中の台詞を止めて話します。準備した台詞は、準備したアバターで 1 回だけ鳴らせます。2 回目や、別のアバターで鳴らすと `OptionsError` です。使わなかった台詞は `dispose()` で捨てます。
+- 2 人の掛け合いでは、アバターごとに `create()` し、それぞれで `prepare()`・`play()` します。
+- 速さ（MacBook Pro（M3 Max）の Chrome、マリンとキッカが 1.6 秒の台詞を交互に 24 行、台詞の 1.5 秒前に `prepare()`。3 回測った範囲）：
+
+  | | `play()` | `speak()` |
+  |---|---|---|
+  | 呼んでから音が出るまで（AudioContext の時計） | 最初の台詞 0〜5 ms、2 行目から平均 0〜1 ms（最大 5 ms） | 最初の台詞 570〜1,080 ms、2 行目から平均 610〜690 ms（530〜1,090 ms） |
+  | 耳に届くまで（音の出口の遅れ 11〜16 ms を含む） | 平均 13〜14 ms | 平均 630〜710 ms |
+  | 口と音のずれ（描いたコマごと） | 平均 −0.1〜0.1 コマ（標準偏差 0.4〜0.5） | 平均 −0.3〜0 コマ（標準偏差 0.4〜0.5） |
+  | 声のある最初のコマから、口が動き始めるまで | 平均 25 ms（0〜80 ms） | 平均 18〜20 ms（0〜80 ms） |
+  | `prepare()` の時間 | 最初の台詞（温める分を含む）400〜740 ms、2 行目から平均 305〜400 ms | － |
+
+  iPhone・Android は測っていません。
 
 ### 動画に書き出す（`createRenderer`）
 

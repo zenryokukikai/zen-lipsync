@@ -2,11 +2,13 @@
 // top draws, for every presented video frame, the mouth patch made for that frame while speech plays.
 // speak(pcm) renders the clip's first patches, starts the sound when the video reaches the clip's first frame, renders
 // the rest ahead of the sound, and draws each patch on the video frame it was made for (requestVideoFrameCallback,
-// else animation frames). An avatar with several idle loops (avatar.json) can switch loops while idle (switchIdle).
+// else animation frames). prepareSpeech(pcm) + play(plan) start the sound at once instead (the work that does not
+// depend on the idle video's position done ahead); the mouth then joins on the first video frame its patch is ready for. An avatar with several idle loops (avatar.json) can switch loops while idle (switchIdle).
 import { Avatar, Compositor, inferFrames, loadModels, sentenceLatents, speechMask, type LipModels, type LipPatch, type ModelOptions } from './avatar.js';
 import { chooseIdlePair, type IdleSwitchFile } from '../core/idle-switch.js';
-import { logMelYielding, MEL_SAMPLE_RATE, yieldToPage } from '../core/mel.js';
+import { logMelYielding, MEL_SAMPLE_RATE, yieldToPage, type LogMel } from '../core/mel.js';
 import { listAvatar, type AvatarSet } from '../core/pack.js';
+import { melGather } from '../core/mel.js';
 import { resample, resampleYielding } from '../core/resample.js';
 import { browserPackSource } from './pack-source.js';
 import { WGSL_MAX_BATCH } from './wgsl.js';
@@ -21,10 +23,34 @@ export interface FrameTiming {
 
 export type { AvatarSet } from '../core/pack.js';
 
+/**
+ * Speech analysed ahead of playing (prepareSpeech): the parts that do not depend on where the idle video is when it
+ * plays. The sentence model's input does (the reference latents of the walk positions under the speech), so the latents
+ * and patches are made when it starts.
+ */
+export interface SpeechPlan {
+  readonly pcm: Float32Array;
+  readonly sampleRate: number;
+  readonly mel: LogMel;
+  /** Per frame: false when nothing sounds under it. */
+  readonly speech: boolean[];
+  /** Per frame: strength of the model's change drawn (patchStrength: 1 on speech, fading over the silence after it, 0 = no patch). */
+  readonly strength: Float32Array;
+  /** The sound, ready to play on the player's AudioContext. */
+  readonly buffer: AudioBuffer;
+}
+
+/** When a speech's sound starts: the player's AudioContext time, and the performance.now() time it is heard. */
+export interface SpeechStartTime {
+  audioTime: number;
+  performanceTime: number;
+  /** This device's audio output delay at that moment (ms): performanceTime minus the time the sound is due on the AudioContext. */
+  outputDelayMs: number;
+}
+
 interface Prepared {
-  pcm: Float32Array;
-  sampleRate: number;
-  /** Walk position of frame 0, frames, sentence latents, patches made so far (f of them), video frames to frame 0. */
+  plan: SpeechPlan;
+  /** Walk position of frame 0, frames, sentence latents (empty until made), patches made so far (f of them). */
   walkStart: number;
   frames: number;
   zl: Uint16Array;
@@ -38,11 +64,12 @@ interface Prepared {
    */
   patches: Map<number, LipPatch | null>;
   f: number;
-  ahead: number;
+  /** Video frames from the sound's start to the start of frame 0 on screen (0: speak(); 0..2 or so: play()). */
+  shift: number;
 }
 
 interface Clip {
-  /** AudioContext time at which the sound starts (frame 0 of the clip), and its length (s). */
+  /** AudioContext time at which the sound starts, and its length (s). Frame 0 of the clip is shown prep.shift frames later. */
   soundAt: number;
   duration: number;
   frames: number;
@@ -159,6 +186,16 @@ export class AutoPairing {
 const FIRST_FRAMES = 8;
 /** Least lead (video frames) between now and the clip's first frame. */
 const MIN_LEAD = 8;
+/** play(): frames rendered before the rest goes on in batches (the first must be ready within about a video frame). */
+const PLAY_FIRST_FRAMES = 2;
+/** play(): margin (ms) added to the measured time from play() to the first patch, to choose the first frame with a mouth. */
+const PLAY_MARGIN_MS = 8;
+/**
+ * prepareSpeech() warms the models (one run of the sentence model and the first frames on this player, discarded) when
+ * they have not run for this long: the first run on a device pays for first-time GPU work, and a GPU left idle may
+ * have slowed down; play() then starts on models as fast as on the following lines.
+ */
+const WARM_AFTER_IDLE_MS = 5000;
 /** Idle switch: the pair is looked for 3 to 75 frames ahead (0.1 to 3 s), then a crossfade of this length. */
 const SWITCH_MIN_WAIT = 3;
 const SWITCH_MAX_WAIT = 75;
@@ -199,6 +236,10 @@ export class LipSyncPlayer {
   private lastStep = -1;
   /** Lead used for the next clip: the last measured time to the first frames + a margin (video frames). */
   private lead = MIN_LEAD;
+  /** play(): measured time (ms) from the call to its first patch (sentence model + first frames), the last few kept. */
+  private readonly playFirstMs: number[] = [];
+  /** performance.now() of the last run of the models (batch); -Infinity before the first. */
+  private lastModelRunAt = -Infinity;
   private readonly timing = { frames: 0, inferMs: 0 };
   private switching = false;
   /** Clips of the current utterance whose sound has been replaced by the next chunk's but may still be playing. */
@@ -230,6 +271,8 @@ export class LipSyncPlayer {
   readonly standbyPlaying = { speechFrames: 0 };
   /** performance.now() of the shown loop's last frame callback, and whether the page paused it (pause()). */
   private lastFrameAt = 0;
+  /** The shown loop's last frame callback: its mediaTime (s) and performance.now() then (null: none yet, or the rAF path). */
+  private lastPresentedMedia: { mediaTime: number; at: number } | null = null;
   /** A frame callback came at least once (the watchdog waits for it: before a gesture the browser may hold autoplay). */
   private framesSeen = false;
   private pausedByUser = false;
@@ -390,12 +433,14 @@ export class LipSyncPlayer {
     const fps = loop.avatar.meta.fps;
     // presentedFrames counts per element: after a switch the other element's count must not be read as skipped frames
     this.lastPresented = -1;
+    this.lastPresentedMedia = null;
     this.lastFrameAt = performance.now();
     if (!this.watchdogTimer) { this.lastCheckAt = performance.now(); this.watchdogTimer = setInterval(() => this.checkWatchdog(), WATCHDOG_CHECK_MS); }
     if (typeof vc.requestVideoFrameCallback === 'function') {
       const onFrame = (now: number, md: { mediaTime: number; presentedFrames?: number; expectedDisplayTime?: number }): void => {
         if (gen !== this.watchGen) return;
         this.lastFrameAt = performance.now();
+        this.lastPresentedMedia = { mediaTime: md.mediaTime, at: this.lastFrameAt };
         this.framesSeen = true;
         if (this.clip && this.standby && !this.standby.video.paused) this.standbyPlaying.speechFrames++;
         // the next callback first: an error in this frame's drawing must not end the frame callbacks (the mouth would stop
@@ -492,57 +537,185 @@ export class LipSyncPlayer {
   }
 
   /** Speak a clip: pcm at sampleRate (any rate; resampled to 16 kHz for the features). Resolves when its sound ends. */
-  async speak(pcm: Float32Array, sampleRate: number): Promise<void> {
-    await this.speakChunks([{ pcm, sampleRate }][Symbol.iterator]());
+  async speak(pcm: Float32Array, sampleRate: number, onStart?: (t: SpeechStartTime) => void): Promise<void> {
+    await this.speakChunks([{ pcm, sampleRate }][Symbol.iterator](), onStart);
   }
 
   /**
    * Speaks chunks one after the other without a gap: while a chunk plays, the next one is prepared (features, sentence
    * model and first frames, planned for the video frame where the playing chunk ends) and its sound is scheduled to
    * start exactly when the previous one ends on the audio clock. Resolves when the last sound ends (or on stop()).
+   * onStart: called when the first chunk's sound is scheduled, with the time it is heard.
    */
-  async speakChunks(chunks: Iterator<{ pcm: Float32Array; sampleRate: number }> | AsyncIterator<{ pcm: Float32Array; sampleRate: number }>): Promise<void> {
+  async speakChunks(chunks: Iterator<{ pcm: Float32Array; sampleRate: number }> | AsyncIterator<{ pcm: Float32Array; sampleRate: number }>, onStart?: (t: SpeechStartTime) => void): Promise<void> {
     await this.audioRunning();
-    // a switch still preparing is dropped; one already crossfading ends within FADE_MS
+    const gen = await this.takeOver();
+    const loop = this.shownLoop;
+    const walkLen = loop.avatar.meta.walk.length;
+    const nextChunk = async (): Promise<SpeechPlan | null> => {
+      const r = await chunks.next();
+      return r.done || gen !== this.speakGen ? null : this.prepareSpeech(r.value.pcm, r.value.sampleRate, { warm: false });
+    };
+    // the first chunk: planned `lead` frames ahead of the video
+    const plan = await nextChunk();
+    if (!plan || gen !== this.speakGen) return;
+    const first = await this.prepareFirst(plan, loop);
+    if (!first || gen !== this.speakGen) return;
+    let clip = this.startClip(first.p, this.ctx.currentTime + this.videoFramesToSound(first.ahead), null);
+    onStart?.(this.heardAt(clip.soundAt));
+    await this.continueClip(clip, loop, gen, async () => {
+      // prepare the next chunk while this one plays: it starts where this one's sound ends
+      const n = await nextChunk();
+      if (!n || gen !== this.speakGen) return null;
+      return this.prepareAt(n, loop, (clip.walkStart + clip.frames) % walkLen, 0, FIRST_FRAMES);
+    }, (c) => { clip = c; });
+  }
+
+  /**
+   * The work on a speech that does not depend on where the idle video is: resampling, log-mel, and the sound as an
+   * AudioBuffer of this player's AudioContext. warm (default true): starts the audio device (some browsers take up to
+   * about 2 s) and, when the models have not run for WARM_AFTER_IDLE_MS (the first speech of this avatar, or after a
+   * pause), runs them once on this speech (discarded) and measures that time for play(): a first play() on the device
+   * is then as fast as the following ones. Can run while the avatar speaks.
+   */
+  async prepareSpeech(pcm: Float32Array, sampleRate: number, opts: { warm?: boolean } = {}): Promise<SpeechPlan> {
+    // in parts that let the page draw in between: the canvas shows every picture, and these took 50-70 ms at once
+    const pcm16 = sampleRate === MEL_SAMPLE_RATE ? pcm : await resampleYielding(pcm, sampleRate, MEL_SAMPLE_RATE);
+    const mel = await logMelYielding(pcm16);
+    const buffer = this.ctx.createBuffer(1, pcm.length, sampleRate);
+    buffer.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
+    const speech = speechMask(mel.mel, mel.melFrames, mel.gather, mel.frames);
+    const plan: SpeechPlan = { pcm, sampleRate, mel, speech, strength: patchStrength(speech), buffer };
+    if (opts.warm ?? true) {
+      // the sound must start at once on play(): the audio device is started here (some browsers take up to about 2 s)
+      await this.audioRunning();
+      if (performance.now() - this.lastModelRunAt > WARM_AFTER_IDLE_MS) {
+        const loop = this.shownLoop;
+        // twice: the first run on a device pays for first-time GPU work; the second is the time play() will take
+        for (let i = 0; i < 2; i++) {
+          const t0 = performance.now();
+          const p = await this.prepareAt(plan, loop, (this.videoStep() + 2) % loop.avatar.meta.walk.length, 0.5, PLAY_FIRST_FRAMES);
+          closePatches(p.patches);
+          if (i === 1) this.notePlayFirst(performance.now() - t0);
+        }
+      }
+    }
+    return plan;
+  }
+
+  /**
+   * Starts a prepared speech's sound now (on this player's AudioContext: within its next render quantum) and draws the
+   * mouth from the first video frame its patch can be made for: the sentence model and the first frames run after the
+   * sound is started, planned for the video frame the measured time from play() to the first patch (+ PLAY_MARGIN_MS)
+   * reaches. That frame and every one after it show the mouth of the sound under them. Like speak(), stops any speech
+   * playing. Resolves when the sound ends (or on stop()). onStart: called when the sound is scheduled.
+   */
+  async play(plan: SpeechPlan, onStart?: (t: SpeechStartTime) => void): Promise<void> {
+    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => undefined);
+    const gen = await this.takeOver();
+    const t0 = performance.now();
+    const loop = this.shownLoop;
+    const fps = loop.avatar.meta.fps;
+    const walkLen = loop.avatar.meta.walk.length;
+    const soundAt = this.ctx.currentTime;
+    // the video frame shown now and how far into it the video is; frame k from now starts (k - frac) frames after the sound
+    const vt = this.presentedVideoTime() * fps;
+    const now = Math.floor(vt + 1e-3);
+    const frac = Math.max(0, vt - now);
+    const k = Math.max(1, Math.ceil(frac + ((this.playLeadMs() / 1000) * fps)));
+    const p = this.planClip(plan, (now + k) % walkLen, k - frac);
+    const clip = this.startClip(p, soundAt, null);
+    onStart?.(this.heardAt(soundAt));
+    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: p.walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel });
+    if (gen !== this.speakGen) return;
+    // frames already on screen (or due before a patch could be drawn) are skipped: the mouth joins on the next one
+    p.f = Math.min(p.frames, Math.max(0, Math.ceil(this.clipFrame(clip) + 0.5)));
+    await this.batch(p, loop, Math.min(PLAY_FIRST_FRAMES, p.frames - p.f));
+    this.notePlayFirst(performance.now() - t0, p.f > 0);
+    await this.continueClip(clip, loop, gen, async () => null, () => undefined);
+  }
+
+  /** speak() / play(): drops a switch still preparing (one already crossfading ends within FADE_MS), stops any speech. */
+  private async takeOver(): Promise<number> {
     this.cancelSwitch?.();
     while (this.switching) await new Promise((r) => setTimeout(r, 20));
     this.stop();
-    const gen = ++this.speakGen;
-    const loop = this.shownLoop;
-    const avatar = loop.avatar;
-    const fps = avatar.meta.fps;
-    const walkLen = avatar.meta.walk.length;
-    const nextChunk = async (): Promise<{ pcm: Float32Array; sampleRate: number } | null> => {
-      const r = await chunks.next();
-      return r.done ? null : r.value;
-    };
-    // the first chunk: planned `lead` frames ahead of the video
-    let c = await nextChunk();
-    if (!c || gen !== this.speakGen) return;
-    let prepared = await this.prepareFirst(c.pcm, c.sampleRate, loop);
-    if (!prepared || gen !== this.speakGen) return;
-    let clip = this.startClip(prepared, loop, null);
+    return ++this.speakGen;
+  }
+
+  /** Renders a started clip's frames while it plays, starts the chunks next() gives back to back, resolves at the last sound's end. */
+  private async continueClip(clip: Clip, loop: Loop, gen: number, next: () => Promise<Prepared | null>, onClip: (c: Clip) => void): Promise<void> {
     let lastEnded: Promise<void> = clip.ended;
     for (;;) {
-      // prepare the next chunk while this one plays: it starts where this one's sound ends
-      const nextP = nextChunk().then(async (n) => {
-        if (!n || gen !== this.speakGen) return null;
-        const startStep = (clip.walkStart + clip.frames) % walkLen;
-        return this.prepareAt(n.pcm, n.sampleRate, loop, startStep);
-      });
+      const nextP = next();
       nextP.catch(() => undefined);
       const [, nx] = await Promise.all([this.renderRest(clip, loop), nextP]);
       if (!nx || gen !== this.speakGen) break;
-      clip = this.startClip(nx, loop, clip);
+      clip = this.startClip(nx, Math.max(this.ctx.currentTime, clip.soundAt + clip.duration), clip);
+      onClip(clip);
       lastEnded = clip.ended;
     }
     await lastEnded;
     if (gen === this.speakGen && this.clip === clip) this.stop();
-    void fps;
+  }
+
+  /** play(): the time (ms) planned from the call to the first patch: the slowest of the last measured + PLAY_MARGIN_MS. */
+  private playLeadMs(): number {
+    return (this.playFirstMs.length ? Math.max(...this.playFirstMs) : 40) + PLAY_MARGIN_MS;
+  }
+
+  /** A measured time from play() (or its warm-up) to the first patch; late: the first planned frame was missed. */
+  private notePlayFirst(ms: number, late = false): void {
+    this.playFirstMs.push(late ? ms * 1.5 : ms);
+    if (this.playFirstMs.length > 5) this.playFirstMs.shift();
+  }
+
+  /**
+   * Video time (s) of the picture on screen now: the last frame callback's mediaTime plus the time since it, while that
+   * callback is recent (the frames the mouth is drawn on); else the element's currentTime. Chrome's currentTime ran about
+   * 0.4 video frames ahead of the presented frame (Mac), which planned play()'s mouth that much early.
+   */
+  private presentedVideoTime(): number {
+    const m = this.lastPresentedMedia, v = this.shown.video;
+    if (!m || v.paused) return v.currentTime;
+    const dt = (performance.now() - m.at) / 1000;
+    if (dt > 0.1) return v.currentTime;
+    return m.mediaTime + dt * (v.playbackRate || 1);
+  }
+
+  /** Seconds from now until the video shows the frame `ahead` frames on (the video and the audio clock both run at real time). */
+  private videoFramesToSound(ahead: number): number {
+    const fps = this.avatar.meta.fps;
+    const vt = this.shown.video.currentTime * fps;
+    const frac = vt - Math.floor(vt + 1e-3);
+    return Math.max(0, ahead - frac) / fps;
+  }
+
+  /**
+   * This device's audio output delay now (ms): from a sound started at the AudioContext's current time to it being heard,
+   * measured from the context's output timestamp where the browser gives one, else its reported output and base latency.
+   */
+  outputDelayMs(): number {
+    return this.heardAt(this.ctx.currentTime).outputDelayMs;
+  }
+
+  /**
+   * When the sound starting at AudioContext time t is heard: t itself, and on performance.now()'s clock (the context's
+   * output timestamp where the browser gives one, which counts the output latency; else now + the time left + outputLatency).
+   */
+  private heardAt(t: number): SpeechStartTime {
+    const now = performance.now();
+    const due = now + (t - this.ctx.currentTime) * 1000;
+    const ts = typeof this.ctx.getOutputTimestamp === 'function' ? this.ctx.getOutputTimestamp() : null;
+    let heard: number;
+    // the output timestamp: the context time being heard now (performanceTime), so t is heard (t - contextTime) later
+    if (ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0) heard = ts.performanceTime + (t - ts.contextTime) * 1000;
+    else heard = due + ((this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0)) * 1000;
+    return { audioTime: t, performanceTime: heard, outputDelayMs: heard - due };
   }
 
   /** The first chunk: features and sentence latents planned ahead of the video, its first frames rendered. */
-  private async prepareFirst(pcm: Float32Array, sampleRate: number, loop: Loop): Promise<Prepared | null> {
+  private async prepareFirst(plan: SpeechPlan, loop: Loop): Promise<{ p: Prepared; ahead: number } | null> {
     const avatar = loop.avatar;
     const fps = avatar.meta.fps;
     const walkLen = avatar.meta.walk.length;
@@ -556,36 +729,43 @@ export class LipSyncPlayer {
       const t0 = performance.now();
       const walkStart = (this.videoStep() + lead) % walkLen;
       if (p) closePatches(p.patches);
-      p = await this.prepareAt(pcm, sampleRate, loop, walkStart);
+      p = await this.prepareAt(plan, loop, walkStart, 0, FIRST_FRAMES);
       const took = Math.ceil(((performance.now() - t0) / 1000) * fps);
       this.lead = Math.max(MIN_LEAD, took + 3);
       // frames the video still has to play until it shows walkStart (about a lap when it has just passed it)
-      let ahead = (((walkStart - this.videoStep()) % walkLen) + walkLen) % walkLen;
-      if (ahead >= 1 && ahead <= lead + 2) { p.ahead = ahead; break; }
-      if (attempt >= 2) { ahead = Math.max(1, Math.min(ahead, lead)); p.ahead = ahead; break; }
+      const ahead = (((walkStart - this.videoStep()) % walkLen) + walkLen) % walkLen;
+      if (ahead >= 1 && ahead <= lead + 2) return { p, ahead };
+      if (attempt >= 2) return { p, ahead: Math.max(1, Math.min(ahead, lead)) };
       lead = this.lead;
     }
-    return p;
   }
 
-  /** Features, sentence latents and the first frames of a chunk whose frame 0 is shown at walk position walkStart. */
-  private async prepareAt(pcm: Float32Array, sampleRate: number, loop: Loop, walkStart: number): Promise<Prepared> {
-    const avatar = loop.avatar;
-    // in parts that let the page draw in between: the canvas shows every picture, and these took 50-70 ms at once
-    const pcm16 = sampleRate === MEL_SAMPLE_RATE ? pcm : await resampleYielding(pcm, sampleRate, MEL_SAMPLE_RATE);
-    const mel = await logMelYielding(pcm16);
-    const zl = await sentenceLatents(this.lips, avatar, { startStep: walkStart, frames: mel.frames, melFrames: mel.melFrames, gather: mel.gather, mel: mel.mel });
-    const speech = speechMask(mel.mel, mel.melFrames, mel.gather, mel.frames);
-    const strength = patchStrength(speech);
-    const p: Prepared = { pcm, sampleRate, walkStart, frames: mel.frames, zl, speech, strength, patches: new Map(), f: 0, ahead: 0 };
-    await this.batch(p, loop, Math.min(FIRST_FRAMES, mel.frames));
+  /**
+   * A clip of plan whose frame 0 is shown at walk position walkStart, `shift` video frames after the sound starts: every
+   * frame takes the mel row and the speech mask of the sound under it. No latents yet (zl empty), no patches.
+   */
+  private planClip(plan: SpeechPlan, walkStart: number, shift: number): Prepared & { gather: number[] } {
+    const m = plan.mel;
+    const { frames, gather } = shift === 0 ? m : melGather(m.melFrames, shift);
+    const speech = shift === 0 ? plan.speech : speechMask(m.mel, m.melFrames, gather, frames);
+    const strength = shift === 0 ? plan.strength : patchStrength(speech);
+    return { plan, walkStart, frames, gather, zl: new Uint16Array(0), speech, strength, patches: new Map(), f: 0, shift };
+  }
+
+  /** Sentence latents and the first n frames of a clip whose frame 0 is shown at walk position walkStart (planClip). */
+  private async prepareAt(plan: SpeechPlan, loop: Loop, walkStart: number, shift: number, n: number): Promise<Prepared> {
+    const p = this.planClip(plan, walkStart, shift);
+    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel });
+    await this.batch(p, loop, Math.min(n, p.frames));
     return p;
   }
 
   private async batch(p: Prepared, loop: Loop, n: number): Promise<void> {
+    if (n <= 0) return;
     const avatar = loop.avatar;
     const us = Array.from({ length: n }, (_, i) => avatar.walk(p.walkStart + p.f + i));
     const tb = performance.now();
+    this.lastModelRunAt = tb;
     // the model's change is kept on every frame with a strength (speech and the fade after it); the others are zeroed
     const drawn = Array.from(p.strength, (k) => k > 0);
     const [pred, srcs] = await Promise.all([inferFrames(this.lips, avatar, us, p.zl, p.f, n, drawn), Promise.all(us.map((u) => avatar.frame(u)))]);
@@ -603,26 +783,12 @@ export class LipSyncPlayer {
     p.f += n;
   }
 
-  /**
-   * Starts a prepared chunk's sound: the first chunk when the video reaches its first frame, a following chunk right
-   * when the previous one's sound ends (prev). Its patches are drawn from then on.
-   */
-  private startClip(p: Prepared, loop: Loop, prev: Clip | null): Clip {
-    const fps = loop.avatar.meta.fps;
-    const buf = this.ctx.createBuffer(1, p.pcm.length, p.sampleRate);
-    buf.copyToChannel(p.pcm as Float32Array<ArrayBuffer>, 0);
+  /** Starts a prepared chunk's sound at AudioContext time soundAt (a following chunk: prev, still playing until then). Its patches are drawn from then on. */
+  private startClip(p: Prepared, soundAt: number, prev: Clip | null): Clip {
     const source = this.ctx.createBufferSource();
-    source.buffer = buf;
+    source.buffer = p.plan.buffer;
     source.connect(this.ctx.destination);
-    let soundAt: number;
-    if (prev) soundAt = Math.max(this.ctx.currentTime, prev.soundAt + prev.duration);
-    else {
-      // sound when the video reaches that frame (the video and the audio clock both run at real time)
-      const vt = this.shown.video.currentTime * fps;
-      const frac = vt - Math.floor(vt + 1e-3);
-      soundAt = this.ctx.currentTime + Math.max(0, p.ahead - frac) / fps;
-    }
-    const clip: Clip = { soundAt, duration: p.pcm.length / p.sampleRate, frames: p.frames, walkStart: p.walkStart, patches: p.patches, source, prep: p,
+    const clip: Clip = { soundAt, duration: p.plan.buffer.duration, frames: p.frames, walkStart: p.walkStart, patches: p.patches, source, prep: p,
       ended: new Promise<void>((r) => { source.onended = () => r(); }) };
     if (prev) this.prevClips.push(prev);
     this.clip = clip;
@@ -749,9 +915,9 @@ export class LipSyncPlayer {
     } finally { this.switching = false; this.cancelSwitch = null; }
   }
 
-  /** Frame of the clip the sound is at now (negative before it starts). */
+  /** Frame of the clip the sound is at now (negative before frame 0: before the sound, or within its shift). */
   private clipFrame(c: Clip): number {
-    return (this.ctx.currentTime - c.soundAt) * this.avatar.meta.fps;
+    return (this.ctx.currentTime - c.soundAt) * this.avatar.meta.fps - c.prep.shift;
   }
 
   /** Inference time per frame since the start (ms). */

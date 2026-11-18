@@ -13,7 +13,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 /** The public surface per entry: [entry, import path, title, [names]]. Order is the order on the page. */
 const ENTRIES = [
-  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'createRenderer', 'RendererOptions', 'LipSyncRenderer', 'RenderFramesOptions', 'RenderedFrame', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'PatchSync', 'VERSION']],
+  ['.', '@zenryokukikai/zen-lipsync', 'ブラウザ（WebGPU）', ['create', 'BrowserCreateOptions', 'createRenderer', 'RendererOptions', 'LipSyncRenderer', 'RenderFramesOptions', 'RenderedFrame', 'CreateOptions', 'AvatarFit', 'AvatarHandle', 'SpeechAudio', 'PreparedSpeech', 'AvatarEvents', 'LoadProgress', 'FrameTiming', 'LipWeights', 'WebGPUUnavailableError', 'OptionsError', 'AvatarPackError', 'PatchSync', 'VERSION']],
   ['./react', '@zenryokukikai/zen-lipsync/react', 'React', ['ZenLipSync', 'ZenLipSyncProps']],
   ['./node', '@zenryokukikai/zen-lipsync/node', 'Node.js（CPU）', ['create', 'NodeCreateOptions', 'NodeAvatar', 'FramesOptions', 'RenderOptions', 'StreamOptions', 'NodeFrame', 'RenderProgress', 'renderAudioFile', 'RenderAudioFileOptions', 'RenderAudioResult', 'renderAudio', 'openWav', 'WavReader', 'FfmpegMissingError', 'WavFormatError']],
   ['./tts', '@zenryokukikai/zen-lipsync/tts', 'ZEN-TTS で話させる（ブラウザ）', ['speakText', 'SpeakTextOptions', 'TtsEngine', 'splitSentences', 'TTS_SAMPLE_RATE']],
@@ -30,6 +30,7 @@ const DESC_JA = {
   AvatarFit: '枠への収め方（既定 contain）。',
   AvatarHandle: '読み込んだアバター。',
   SpeechAudio: '音声：モノラルの Float32Array とサンプリングレート。',
+  PreparedSpeech: 'prepare() で準備した台詞（play() で 1 回鳴らす、dispose() で捨てる）。',
   AvatarEvents: 'on() のイベント。',
   LoadProgress: '読み込みの進み具合。',
   FrameTiming: '1 フレームの推論時間。',

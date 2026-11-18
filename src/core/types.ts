@@ -43,12 +43,34 @@ export interface FrameTiming {
   inferMsPerFrame: number;
 }
 
+/** An utterance made ready by AvatarHandle.prepare(): play it once with play(), or dispose() it when not needed. */
+export interface PreparedSpeech {
+  /** Video frames (25 fps) and length (ms) of the sound. */
+  readonly frames: number;
+  readonly durationMs: number;
+  /** False once played or disposed. */
+  readonly playable: boolean;
+  /**
+   * This device's audio output delay (ms) measured when prepare() finished: play() starts the sound at once on the
+   * AudioContext, and it is heard about this much later.
+   */
+  readonly outputDelayMs: number;
+  /** Drops the prepared data without playing it (nothing to do after play()). */
+  dispose(): void;
+}
+
 /** Events of an AvatarHandle. */
 export interface AvatarEvents {
   /** Loading finished; the idle loop plays. */
   ready: { backend: 'webgpu' | 'cpu'; loadMs: number; loadedBytes: number };
-  /** The sound of an utterance started / ended (ended also on stop()). */
-  speechstart: { frames: number };
+  /**
+   * The sound of an utterance started / ended (ended also on stop()). speechstart comes when the sound is scheduled, with
+   * the time it is heard: `audioTime` on the avatar's AudioContext clock and `performanceTime` on performance.now()'s,
+   * which includes `outputDelayMs`, this device's audio output delay measured then (the AudioContext's output timestamp,
+   * else its reported latencies). They are missing when the utterance ended before its sound was scheduled (stop(), an
+   * error); speechend follows then at once.
+   */
+  speechstart: { frames: number; audioTime?: number; performanceTime?: number; outputDelayMs?: number };
   speechend: { interrupted: boolean };
   /** The idle loop changed (setIdle). */
   idlechange: { from: string; to: string };
@@ -71,6 +93,18 @@ export interface AvatarHandle {
   speak(audio: SpeechAudio): Promise<void>;
   /** Speaks audio that arrives in chunks (e.g. streamed speech synthesis), each spoken as soon as it is ready, in order. */
   speakStream(chunks: AsyncIterable<SpeechAudio>): Promise<void>;
+  /**
+   * Does the work of an utterance ahead of time (audio features, the sound as audio data, the audio device started, and a
+   * warm-up run of the models on this device when they have not run for a while, e.g. this avatar's first utterance), so
+   * that play() starts its sound at once. Can be called while the avatar speaks. Browser only.
+   */
+  prepare(audio: SpeechAudio): Promise<PreparedSpeech>;
+  /**
+   * Starts a prepared utterance's sound now (within one video frame, a near-constant delay) and moves the mouth with it
+   * from the next video frame. Like speak(), it stops what the avatar is saying. Resolves when the sound ends (or it is
+   * stopped). Each PreparedSpeech plays once, on the avatar that prepared it.
+   */
+  play(prepared: PreparedSpeech): Promise<void>;
   /** Switches the idle loop while idle (a short crossfade at a similar frame); false when nothing was done. */
   setIdle(name: string): Promise<boolean>;
   /** Subscribes to an event; returns the function that unsubscribes. */

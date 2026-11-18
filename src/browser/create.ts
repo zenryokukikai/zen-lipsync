@@ -2,9 +2,9 @@
 import { OptionsError } from '../core/errors.js';
 import { Emitter } from '../core/events.js';
 import { resolveOptions } from '../core/options.js';
-import type { AvatarHandle, CreateOptions, SpeechAudio } from '../core/types.js';
+import type { AvatarEvents, AvatarHandle, CreateOptions, PreparedSpeech, SpeechAudio } from '../core/types.js';
 import { requestGpuAdapter } from '../runtime/avatar.js';
-import { LipSyncPlayer } from '../runtime/player.js';
+import { LipSyncPlayer, type SpeechPlan, type SpeechStartTime } from '../runtime/player.js';
 
 /** How the picture fills its box: 'contain' shows the whole frame (letterboxed when the box has another shape), 'cover' fills the box and crops. */
 export type AvatarFit = 'contain' | 'cover';
@@ -103,16 +103,39 @@ class BrowserAvatar implements AvatarHandle {
 
   async speak(audio: SpeechAudio): Promise<void> {
     this.live();
-    if (!(audio?.pcm instanceof Float32Array) || !(audio.sampleRate > 0)) throw new OptionsError('speak(): audio must be { pcm: Float32Array, sampleRate > 0 }');
-    const frames = Math.floor((audio.pcm.length / audio.sampleRate) * 25);
-    this.events.emit('speechstart', { frames });
+    checkAudio('speak()', audio);
+    await this.utterance(Math.floor((audio.pcm.length / audio.sampleRate) * 25), (onStart) => this.player.speak(audio.pcm, audio.sampleRate, onStart));
+  }
+
+  async prepare(audio: SpeechAudio): Promise<PreparedSpeech> {
+    this.live();
+    checkAudio('prepare()', audio);
+    const plan = await this.player.prepareSpeech(audio.pcm, audio.sampleRate);
+    return new BrowserPreparedSpeech(this, plan, this.player.outputDelayMs());
+  }
+
+  async play(prepared: PreparedSpeech): Promise<void> {
+    this.live();
+    if (!(prepared instanceof BrowserPreparedSpeech) || prepared.owner !== this) throw new OptionsError('play(): pass a PreparedSpeech from this avatar\'s prepare()');
+    const plan = prepared.take();
+    await this.utterance(prepared.frames, (onStart) => this.player.play(plan, onStart));
+  }
+
+  /**
+   * One utterance's events around run: speechstart when its sound is scheduled (with the time it is heard), speechend
+   * when it ends or is stopped (speechstart without times first when it never got scheduled), error on a failure.
+   */
+  private async utterance(frames: number, run: (onStart: (t: SpeechStartTime) => void) => Promise<void>): Promise<void> {
+    let started = false;
+    const start = (e: AvatarEvents['speechstart']): void => { if (!started) { started = true; this.events.emit('speechstart', e); } };
     let interrupted = false;
     const stopped = this.events.once('_stop').then(() => { interrupted = true; });
-    try { await this.player.speak(audio.pcm, audio.sampleRate); } catch (e) {
+    try { await run((t) => start({ frames, ...t })); } catch (e) {
       this.events.emit('error', { error: e instanceof Error ? e : new Error(String(e)) });
       throw e;
     } finally {
       void stopped;
+      start({ frames });
       this.events.emit('speechend', { interrupted });
     }
   }
@@ -130,22 +153,15 @@ class BrowserAvatar implements AvatarHandle {
         const r = await it.next();
         if (r.done || self.destroyed || gen !== self.streamGen) return { done: true, value: undefined };
         const a = r.value;
-        if (!(a?.pcm instanceof Float32Array) || !(a.sampleRate > 0)) throw new OptionsError('speakStream(): every chunk must be { pcm: Float32Array, sampleRate > 0 }');
+        checkAudio('speakStream(): every chunk', a);
         return { done: false, value: a };
       },
     };
-    this.events.emit('speechstart', { frames: 0 });
-    let interrupted = false;
-    const stopped = this.events.once('_stop').then(() => { interrupted = true; });
-    const run = this.queue.then(() => this.player.speakChunks(checked));
-    this.queue = run.catch(() => undefined);
-    try { await run; } catch (e) {
-      this.events.emit('error', { error: e instanceof Error ? e : new Error(String(e)) });
-      throw e;
-    } finally {
-      void stopped;
-      this.events.emit('speechend', { interrupted });
-    }
+    await this.utterance(0, (onStart) => {
+      const run = this.queue.then(() => this.player.speakChunks(checked, onStart));
+      this.queue = run.catch(() => undefined);
+      return run;
+    });
   }
 
   async setIdle(name: string): Promise<boolean> {
@@ -170,5 +186,40 @@ class BrowserAvatar implements AvatarHandle {
     this.player.destroy();
     this.box.remove();
     this.events.clear();
+  }
+}
+
+function checkAudio(what: string, audio: SpeechAudio): void {
+  if (!(audio?.pcm instanceof Float32Array) || !(audio.sampleRate > 0)) throw new OptionsError(`${what} must be { pcm: Float32Array, sampleRate > 0 }`);
+}
+
+/** A browser avatar's prepared utterance: its SpeechPlan until played or disposed. */
+class BrowserPreparedSpeech implements PreparedSpeech {
+  readonly frames: number;
+  readonly durationMs: number;
+  private plan: SpeechPlan | null;
+  private used: 'played' | 'disposed' | null = null;
+
+  constructor(readonly owner: BrowserAvatar, plan: SpeechPlan, readonly outputDelayMs: number) {
+    this.plan = plan;
+    this.frames = plan.mel.frames;
+    this.durationMs = (plan.pcm.length / plan.sampleRate) * 1000;
+  }
+
+  get playable(): boolean { return this.plan !== null; }
+
+  /** The plan, once (play()). */
+  take(): SpeechPlan {
+    const p = this.plan;
+    if (!p) throw new OptionsError(`play(): this PreparedSpeech was already ${this.used}`);
+    this.plan = null;
+    this.used = 'played';
+    return p;
+  }
+
+  dispose(): void {
+    if (!this.plan) return;
+    this.plan = null;
+    this.used = 'disposed';
   }
 }

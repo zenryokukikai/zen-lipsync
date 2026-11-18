@@ -11,7 +11,7 @@ import { inferFrames, sentenceLatents, speechMask, type LipModels } from '../cor
 import { framesOfMs, OutputTimeline, speechChunks as toChunks } from '../core/output-timeline.js';
 import { OptionsError } from '../core/errors.js';
 import { Emitter } from '../core/events.js';
-import type { AvatarHandle, SpeechAudio } from '../core/types.js';
+import type { AvatarHandle, PreparedSpeech, SpeechAudio } from '../core/types.js';
 import type { AvatarSet } from '../core/pack.js';
 import { NodeCompositor } from './compositor.js';
 import type { NodePack } from './pack.js';
@@ -337,6 +337,8 @@ export class NodeAvatar implements AvatarHandle {
   /** On Node, speech is turned into frames with frames() / render() / stream(); speak() is not used. */
   speak(_audio: SpeechAudio): Promise<void> { return Promise.reject(new OptionsError('zen-lipsync/node: use frames(), render() or stream() (speak() is for the browser player)')); }
   speakStream(_chunks: AsyncIterable<SpeechAudio>): Promise<void> { return this.speak({ pcm: new Float32Array(0), sampleRate: 1 }); }
+  prepare(_audio: SpeechAudio): Promise<PreparedSpeech> { return Promise.reject(new OptionsError('zen-lipsync/node: use frames(), render() or stream() (prepare() and play() are for the browser player)')); }
+  play(_prepared: PreparedSpeech): Promise<void> { return this.prepare({ pcm: new Float32Array(0), sampleRate: 1 }).then(() => undefined); }
 
   on: AvatarHandle['on'] = (event, listener) => this.events.on(event, listener);
   stop(): void { /* outputs end when their consumer stops reading */ }

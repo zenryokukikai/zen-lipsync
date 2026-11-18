@@ -8,7 +8,7 @@ export { Emitter } from './events.js';
 export { listAvatar, loadPackData, checkPackMeta, checkAvatarSet, fileHash, modelPath, sha256Hex, MODEL_FILES,
   type PackSource, type PackRef, type PackMeta, type PackData, type AvatarSet, type AvatarListing, type Geometry, type ToneTables } from './pack.js';
 export { FRAMES_PACK_MAGIC, framesPackHeadLength, readFramesPackIndex, framesPackFrameEnd, type FramesPackIndex } from './frames-pack.js';
-export { logMel, MEL_SAMPLE_RATE, type LogMel } from './mel.js';
+export { logMel, melGather, MEL_SAMPLE_RATE, type LogMel } from './mel.js';
 export { resample } from './resample.js';
 export { chooseIdlePair, IDLE_GOOD_PAIR_DIST, type IdlePairTable, type IdleSwitchFile, type IdlePairChoice } from './idle-switch.js';
 export { sentenceLatents, inferFrames, speechMask, type LipModels, type LipAvatar, type SentenceInput } from './lipsync.js';

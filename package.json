@@ -1,6 +1,6 @@
 {
   "name": "@zenryokukikai/zen-lipsync",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "ZEN-LipSync SDK: real-time photoreal lip-sync — browser (WebGPU) and Node (CPU). Avatar packs: github.com/zenryokukikai/zen-lipsync-avatars",
   "license": "SEE LICENSE IN LICENSE.md",
