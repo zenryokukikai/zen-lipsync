@@ -271,8 +271,10 @@ export class LipSyncPlayer {
   readonly standbyPlaying = { speechFrames: 0 };
   /** performance.now() of the shown loop's last frame callback, and whether the page paused it (pause()). */
   private lastFrameAt = 0;
-  /** The shown loop's last frame callback: its mediaTime (s) and performance.now() then (null: none yet, or the rAF path). */
+  /** The shown loop's last frame callback: its mediaTime (s) and the callback's timestamp on performance.now()'s clock (null: none yet, or the rAF path). */
   private lastPresentedMedia: { mediaTime: number; at: number } | null = null;
+  /** mediaTime (ms) minus the callback's timestamp, of the last frame callbacks (the video plays at real time: a constant). */
+  private videoPhase: number[] = [];
   /** A frame callback came at least once (the watchdog waits for it: before a gesture the browser may hold autoplay). */
   private framesSeen = false;
   private pausedByUser = false;
@@ -434,13 +436,18 @@ export class LipSyncPlayer {
     // presentedFrames counts per element: after a switch the other element's count must not be read as skipped frames
     this.lastPresented = -1;
     this.lastPresentedMedia = null;
+    this.videoPhase = [];
     this.lastFrameAt = performance.now();
     if (!this.watchdogTimer) { this.lastCheckAt = performance.now(); this.watchdogTimer = setInterval(() => this.checkWatchdog(), WATCHDOG_CHECK_MS); }
     if (typeof vc.requestVideoFrameCallback === 'function') {
       const onFrame = (now: number, md: { mediaTime: number; presentedFrames?: number; expectedDisplayTime?: number }): void => {
         if (gen !== this.watchGen) return;
         this.lastFrameAt = performance.now();
-        this.lastPresentedMedia = { mediaTime: md.mediaTime, at: this.lastFrameAt };
+        // anchored at the callback's own timestamp (the frame's time) when it is on performance.now()'s clock: the callback
+        // can run late (a busy main thread on a slower phone), and the time it ran then misplaces the video
+        const shownAt = Math.abs(now - this.lastFrameAt) <= CLOCK_MISMATCH_MS ? now : this.lastFrameAt;
+        this.lastPresentedMedia = { mediaTime: md.mediaTime, at: shownAt };
+        pushPhase(this.videoPhase, md.mediaTime * 1000 - shownAt);
         this.framesSeen = true;
         if (this.clip && this.standby && !this.standby.video.paused) this.standbyPlaying.speechFrames++;
         // the next callback first: an error in this frame's drawing must not end the frame callbacks (the mouth would stop
@@ -671,16 +678,20 @@ export class LipSyncPlayer {
   }
 
   /**
-   * Video time (s) of the picture on screen now: the last frame callback's mediaTime plus the time since it, while that
-   * callback is recent (the frames the mouth is drawn on); else the element's currentTime. Chrome's currentTime ran about
-   * 0.4 video frames ahead of the presented frame (Mac), which planned play()'s mouth that much early.
+   * Video time (s) of the picture on screen now, from the recent frame callbacks (the frames the mouth is drawn on):
+   * each gives a frame's mediaTime and its timestamp, so now + their median phase; else the element's currentTime.
+   * Chrome's currentTime ran about 0.4 video frames ahead of the presented frame (Mac), which planned play()'s mouth that
+   * much early. The time since the last callback alone placed it wrong by up to 2-3 frames where the callbacks come
+   * late (a busy main thread on a slower phone): play()'s mouth was then off its sound by that much for the whole line.
    */
   private presentedVideoTime(): number {
     const m = this.lastPresentedMedia, v = this.shown.video;
-    if (!m || v.paused) return v.currentTime;
-    const dt = (performance.now() - m.at) / 1000;
-    if (dt > 0.1) return v.currentTime;
-    return m.mediaTime + dt * (v.playbackRate || 1);
+    if (!m || v.paused || (v.playbackRate || 1) !== 1) return v.currentTime;
+    const now = performance.now();
+    if (now - m.at > 0.3 * 1000) return v.currentTime;
+    // the median of the recent callbacks' phase: one callback that came late (a busy main thread) moves it by nothing
+    const phase = medianPhase(this.videoPhase);
+    return phase === null ? m.mediaTime + (now - m.at) / 1000 : (now + phase) / 1000;
   }
 
   /** Seconds from now until the video shows the frame `ahead` frames on (the video and the audio clock both run at real time). */
@@ -701,17 +712,21 @@ export class LipSyncPlayer {
 
   /**
    * When the sound starting at AudioContext time t is heard: t itself, and on performance.now()'s clock (the context's
-   * output timestamp where the browser gives one, which counts the output latency; else now + the time left + outputLatency).
+   * output timestamp where the browser gives one, which counts the output latency; else now + the time left + the
+   * context's reported output and base latency). The output delay is never negative: a sound cannot be heard before it
+   * is due. iOS Safari's output timestamp put it 0-2 ms before (the timestamp is not ahead of the context time there);
+   * such a timestamp is not used and the reported latencies are.
    */
   private heardAt(t: number): SpeechStartTime {
     const now = performance.now();
     const due = now + (t - this.ctx.currentTime) * 1000;
     const ts = typeof this.ctx.getOutputTimestamp === 'function' ? this.ctx.getOutputTimestamp() : null;
-    let heard: number;
     // the output timestamp: the context time being heard now (performanceTime), so t is heard (t - contextTime) later
-    if (ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0) heard = ts.performanceTime + (t - ts.contextTime) * 1000;
-    else heard = due + ((this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0)) * 1000;
-    return { audioTime: t, performanceTime: heard, outputDelayMs: heard - due };
+    const byTimestamp = ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0
+      ? ts.performanceTime + (t - ts.contextTime) * 1000 - due : null;
+    const byLatency = ((this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0)) * 1000;
+    const delay = outputDelay(byTimestamp, byLatency);
+    return { audioTime: t, performanceTime: due + delay, outputDelayMs: delay };
   }
 
   /** The first chunk: features and sentence latents planned ahead of the video, its first frames rendered. */
@@ -996,6 +1011,38 @@ export class LipSyncPlayer {
 function closePatches(m: Map<number, LipPatch | null>): void {
   for (const q of m.values()) q?.bitmap.close();
   m.clear();
+}
+
+/**
+ * A device's audio output delay (ms) from the output timestamp's measure (null: none) and the context's reported output
+ * + base latency: the timestamp's when it is positive, else the reported latency (0 when the browser reports none).
+ */
+export function outputDelay(byTimestamp: number | null, byLatency: number): number {
+  if (byTimestamp !== null && Number.isFinite(byTimestamp) && byTimestamp > 0) return byTimestamp;
+  return Number.isFinite(byLatency) && byLatency > 0 ? byLatency : 0;
+}
+
+/** Frame callbacks kept for the video's phase (about 0.6 s). */
+const PHASE_WINDOW = 15;
+
+/** Keeps the last PHASE_WINDOW phases (ms); a jump of more than PHASE_JUMP_MS (the loop wrapped, a seek) starts anew. */
+function pushPhase(a: number[], v: number): void {
+  if (a.length && Math.abs(v - a[a.length - 1]!) > PHASE_JUMP_MS) a.length = 0;
+  a.push(v);
+  if (a.length > PHASE_WINDOW) a.shift();
+}
+
+/** A phase change this large is a wrap or a seek, not a late callback (a late one is off by a fraction of a second at most). */
+const PHASE_JUMP_MS = 400;
+
+/**
+ * The video's phase (mediaTime ms minus callback timestamp) from the recent callbacks: their median, which a few late callbacks
+ * do not move. null with fewer than 3.
+ */
+export function medianPhase(a: readonly number[]): number | null {
+  if (a.length < 3) return null;
+  const s = [...a].sort((x, y) => x - y);
+  return s[s.length >> 1]!;
 }
 
 /** Keeps the last 50 values (about 2 s of frames). */

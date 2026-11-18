@@ -138,3 +138,21 @@ test('Node: prepare() and play() are for the browser player (OptionsError)', asy
   await assert.rejects(n.prepare({ pcm: new Float32Array(1), sampleRate: 1 }), OptionsError);
   await assert.rejects(n.play({}), OptionsError);
 });
+
+test('outputDelay: the output timestamp\'s measure when positive; else the reported latency; never negative', async () => {
+  const { outputDelay } = await import('../dist/runtime/player.js');
+  assert.equal(outputDelay(14.2, 30), 14.2);
+  // iOS Safari: the output timestamp put the sound 0-2 ms before it is due
+  assert.equal(outputDelay(-1.2, 10.7), 10.7);
+  assert.equal(outputDelay(0, 10.7), 10.7);
+  assert.equal(outputDelay(null, 25), 25);
+  assert.equal(outputDelay(-2, 0), 0);
+  assert.equal(outputDelay(null, Number.NaN), 0);
+});
+
+test('medianPhase: late frame callbacks do not move the video\'s phase; fewer than 3 give none', async () => {
+  const { medianPhase } = await import('../dist/runtime/player.js');
+  assert.equal(medianPhase([5, 6]), null);
+  // the callbacks' mediaTime minus their timestamp: 3 of 9 came 30-60 ms late (a busy main thread)
+  assert.equal(medianPhase([100, 101, 40, 99, 100, 70, 101, 100, 55]), 100);
+});
