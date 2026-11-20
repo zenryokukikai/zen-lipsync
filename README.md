@@ -106,7 +106,7 @@ React：`<ZenLipSync avatar="/avatars/marine/avatar.json" onReady={(avatar) => a
 | `speak(audio)` / `speakStream(chunks)` | 話させます。鳴り終わると解決します。`speakStream` は届いた順につなげて話します。 |
 | `prepare(audio)` / `play(prepared)` | 前もって準備し、決めた時刻にすぐ鳴らします（下の「決めた時刻に話させる」）。 |
 | `setIdle(name)` | 待機映像を切り替えます（話していない間だけ。似たフレームで 0.3 秒のクロスフェード）。 |
-| `create({ mouthOpen: { scale } })` / `setMouthOpen(m)` / `mouthOpenAvailable` | 口の開き具合。`scale` は 0 より大きく 2 以下（1・`null` は学習どおりで、出力はこれまでとまったく同じ。小さくすると口があまり開かない）。開く向きの成分だけ縮め、唇の形は残します。パックに `mouth_open_dir.f32` が要り、使えるかは `mouthOpenAvailable` で分かります。使えない設定はエラーになります。 |
+| `create({ mouthOpen: { scale } })` / `setMouthOpen(m)` / `mouthOpenAvailable` | 口の開き具合。`scale` は 0 より大きく 2 以下（1・`null` は学習どおりで、出力はこれまでとまったく同じ。小さくすると口があまり開かない）。開く向きの成分だけ縮め、唇の形は残します。パックに `mouth_open_dir.f32` が要り、使えるかは `mouthOpenAvailable` で分かります。使えない設定はエラーになります。同梱のアバターでは、アバターパック 1.1.4 以降（`#v1.1.4`）が要ります。 |
 | `on(event, listener)` | `ready`・`speechstart`・`speechend`・`idlechange`・`error`。戻り値の関数で解除します。`speechstart` には、音が耳に届く時刻（`audioTime`：アバターの AudioContext の時計、`performanceTime`：`performance.now()` の時計）と、この端末の音の出口の遅れ（`outputDelayMs`）が付きます。 |
 | `stop()` / `pause()` / `resume()` / `destroy()` | 止める（待機映像は続く）・一時停止・再開・解放。 |
 | エラー | `WebGPUUnavailableError`（`reason`：`'no-navigator-gpu'`・`'no-adapter'`）、`OptionsError`、`AvatarPackError` |
