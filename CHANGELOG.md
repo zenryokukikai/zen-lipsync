@@ -4,7 +4,7 @@
 
 ### 口の開き具合（`mouthOpen`）
 - `create({ mouthOpen: { scale } })` と `setMouthOpen()` で、口の開き具合を変えられるようにしました。`scale` は 0 より大きく 1 以下です。1 は学習どおりで、小さくするほど口があまり開かなくなります。1 より大きい値はエラーです。開く向きの成分だけを縮めるので、唇の形は残ります。
-- パックの任意のファイル `mouth_open_dir.f32`（口が開く向き）が要ります。無いパックでは使えません。使えるかは `mouthOpenAvailable` で分かります。使えない設定は、黙って無視せずにエラーにします。
+- パックの任意のファイル `mouth_open_dir.f32`（口が開く向き）が要ります。無いパックでは使えません。使えるかは `mouthOpenAvailable` で分かります。使えない設定を渡すと、無視せずにエラーにします。
 - 1 のときは、これまでとまったく同じ出力です。
 - `createRenderer()` も同じ `mouthOpen` と `setMouthOpen()`・`mouthOpenAvailable` を持ちます。
 - 同梱のアバター（全力 マリン・全力 ハシロウ・全力 キッカ）で使うには、`mouth_open_dir.f32` の入ったアバターパック 1.1.4 以降（zen-lipsync-avatars `#v1.1.4`）にしてください。1.1.3 以前のパックでは `mouthOpenAvailable` が false です。
