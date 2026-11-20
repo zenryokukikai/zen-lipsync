@@ -11,7 +11,7 @@ import { listAvatar } from '../core/pack.js';
 import { applyStrength, patchStrength } from '../core/patch-strength.js';
 import { resampleYielding } from '../core/resample.js';
 import { resolveOptions } from '../core/options.js';
-import { mouthOpenModes, resolveMouthOpen, type MouthOpen, type MouthOpenMode } from '../core/mouth-open.js';
+import { resolveMouthOpen, type MouthOpen } from '../core/mouth-open.js';
 import type { CreateOptions, SpeechAudio } from '../core/types.js';
 import { Avatar, Compositor, inferFrames, loadModels, requestGpuAdapter, sentenceLatents, speechMask, type LipModels } from '../runtime/avatar.js';
 import { IdleFrames } from '../runtime/idle-frames.js';
@@ -82,11 +82,11 @@ export class LipSyncRenderer {
   private readonly scaled: { canvas: OffscreenCanvas; g: OffscreenCanvasRenderingContext2D } | null;
 
   /** How wide the mouth opens (create()'s mouthOpen, core/mouth-open.ts); null = as trained. */
-  private mouthOpen: Required<MouthOpen> | null = null;
-  /** The mouthOpen modes this avatar can do ('opening' needs the pack's mouth_open_dir.f32). */
-  get mouthOpenModes(): readonly MouthOpenMode[] { return mouthOpenModes(this.avatar.mouthOpenDir !== null); }
+  private mouthOpen: MouthOpen | null = null;
+  /** True when the mouth opening can be scaled (the pack has mouth_open_dir.f32). */
+  get mouthOpenAvailable(): boolean { return this.avatar.mouthOpenDir !== null; }
   /** Changes how wide the mouth opens for the next frames() (null / scale 1 = as trained). OptionsError when this avatar cannot do the mode. */
-  setMouthOpen(mouthOpen: MouthOpen | null): void { this.mouthOpen = resolveMouthOpen(mouthOpen, this.mouthOpenModes, 'setMouthOpen()'); }
+  setMouthOpen(mouthOpen: MouthOpen | null): void { this.mouthOpen = resolveMouthOpen(mouthOpen, this.mouthOpenAvailable, 'setMouthOpen()'); }
   /** @internal use createRenderer() */
   constructor(readonly avatar: Avatar, readonly lips: LipModels, private readonly video: IdleFrames, readonly idleLoop: string, matte: boolean, width: number | undefined) {
     const [W, H] = avatar.meta.frame_size;

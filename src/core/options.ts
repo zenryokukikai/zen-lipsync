@@ -10,7 +10,7 @@ export interface ResolvedOptions {
   weights: LipWeights;
   idle: string | null;
   onProgress: NonNullable<CreateOptions['onProgress']>;
-  mouthOpen: Required<MouthOpen> | null;
+  mouthOpen: MouthOpen | null;
 }
 
 /** Checks create() options (unknown keys are rejected so typos are not silently ignored) and fills the defaults. */

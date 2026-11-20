@@ -3,7 +3,7 @@
 // over the <video>. Output: frames() (raw RGB), render() (a video file), stream() (a byte stream or JPEG frames).
 // Speech can come as one clip or as a stream of chunks: each chunk is prepared (features, sentence model) while the
 // previous one is drawn, and its frames follow the previous chunk's without a gap.
-import { mouthOpenModes, resolveMouthOpen, type MouthOpen, type MouthOpenMode } from '../core/mouth-open.js';
+import { resolveMouthOpen, type MouthOpen } from '../core/mouth-open.js';
 import { Readable } from 'node:stream';
 import { unlink } from 'node:fs/promises';
 import type { ChildProcess } from 'node:child_process';
@@ -133,11 +133,11 @@ export class NodeAvatar implements AvatarHandle {
   get idleLoops(): readonly string[] { return [...this.packs.keys()]; }
   get speaking(): boolean { return this.busy; }
   /** How wide the mouth opens (core/mouth-open.ts); null = as trained. */
-  private mouthOpen: Required<MouthOpen> | null = null;
-  get mouthOpenModes(): readonly MouthOpenMode[] { return mouthOpenModes([...this.packs.values()].every((p) => p.mouthOpenDir !== null)); }
+  private mouthOpen: MouthOpen | null = null;
+  get mouthOpenAvailable(): boolean { return [...this.packs.values()].every((p) => p.mouthOpenDir !== null); }
   setMouthOpen(mouthOpen: MouthOpen | null): void {
     if (this.destroyed) throw new Error('ZEN-LipSync: the avatar was destroyed');
-    this.mouthOpen = resolveMouthOpen(mouthOpen, this.mouthOpenModes, 'setMouthOpen()');
+    this.mouthOpen = resolveMouthOpen(mouthOpen, this.mouthOpenAvailable, 'setMouthOpen()');
   }
   /** Frame size of the output. */
   get width(): number { return this.shown.meta.frame_size[0]; }

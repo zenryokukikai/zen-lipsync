@@ -13,4 +13,4 @@ export { resample } from './resample.js';
 export { chooseIdlePair, IDLE_GOOD_PAIR_DIST, type IdlePairTable, type IdleSwitchFile, type IdlePairChoice } from './idle-switch.js';
 export { sentenceLatents, inferFrames, speechMask, type LipModels, type LipAvatar, type SentenceInput } from './lipsync.js';
 export { CpuSentenceModel, parseSentenceWeights, sentenceScaleShift, type SentenceWeights } from './sentence-model.js';
-export { checkMouthOpen, mouthOpenModes, scaleMouthOpen, MOUTH_OPEN_MODES, MOUTH_OPEN_DIR_FILE, type MouthOpen, type MouthOpenMode } from './mouth-open.js';
+export { checkMouthOpen, scaleMouthOpen, MOUTH_OPEN_DIR_FILE, type MouthOpen } from './mouth-open.js';

@@ -6,7 +6,7 @@
 // depend on the idle video's position done ahead); the mouth then joins on the first video frame its patch is ready for. An avatar with several idle loops (avatar.json) can switch loops while idle (switchIdle).
 import { Avatar, Compositor, inferFrames, loadModels, sentenceLatents, speechMask, type LipModels, type LipPatch, type ModelOptions } from './avatar.js';
 import { chooseIdlePair, type IdleSwitchFile } from '../core/idle-switch.js';
-import { mouthOpenModes, type MouthOpen, type MouthOpenMode } from '../core/mouth-open.js';
+import { type MouthOpen } from '../core/mouth-open.js';
 import { logMelYielding, MEL_SAMPLE_RATE, yieldToPage, type LogMel } from '../core/mel.js';
 import { listAvatar, type AvatarSet } from '../core/pack.js';
 import { melGather } from '../core/mel.js';
@@ -307,9 +307,9 @@ export class LipSyncPlayer {
   }
 
   /** How wide the mouth opens (core/mouth-open.ts); null = as trained. Set by the handle (create() / setMouthOpen). */
-  mouthOpen: Required<MouthOpen> | null = null;
-  /** The mouthOpen modes of this avatar: 'opening' only when every loop's pack has the direction. */
-  get mouthOpenModes(): MouthOpenMode[] { return mouthOpenModes([...this.loops.values()].every((l) => l.avatar.mouthOpenDir !== null)); }
+  mouthOpen: MouthOpen | null = null;
+  /** True when the mouth opening can be scaled: every loop's pack has the direction. */
+  get mouthOpenAvailable(): boolean { return [...this.loops.values()].every((l) => l.avatar.mouthOpenDir !== null); }
 
   /** The avatar pack of the loop shown now. */
   get avatar(): Avatar { return this.shownLoop.avatar; }

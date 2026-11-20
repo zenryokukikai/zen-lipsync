@@ -1,7 +1,7 @@
 // The SDK's public API shape, shared by the browser entry (zen-lipsync, WebGPU) and the Node entry (zen-lipsync/node, CPU).
 
 /** Frame model weights on WebGPU: 'i8' (default, int8 restored to float32 once at load), 'f32', or 'i8q' (int8 kept, restored on every use). */
-import type { MouthOpen, MouthOpenMode } from './mouth-open.js';
+import type { MouthOpen } from './mouth-open.js';
 export type LipWeights = 'f32' | 'i8' | 'i8q';
 
 /** Options of create(). */
@@ -24,9 +24,9 @@ export interface CreateOptions {
   /** Called with the bytes of every file loaded (models, features, frames). */
   onProgress?: (p: LoadProgress) => void;
   /**
-   * How wide the mouth opens: { scale, mode? }. scale in (0, 2], 1 = as trained (default); below 1 the mouth opens less
-   * (a small child). mode 'opening' (default) scales only the opening (lip shape kept, needs the pack's
-   * mouth_open_dir.f32), 'all' every mouth move. The modes an avatar can do: handle.mouthOpenModes. Also setMouthOpen().
+   * How wide the mouth opens: { scale }. scale in (0, 2], 1 = as trained (default); below 1 the mouth opens less
+   * (a small child). Only the opening is scaled (lip shape kept); it needs the pack's mouth_open_dir.f32 — whether an
+   * avatar has it: handle.mouthOpenAvailable. Also setMouthOpen().
    */
   mouthOpen?: MouthOpen;
 }
@@ -114,8 +114,8 @@ export interface AvatarHandle {
   play(prepared: PreparedSpeech): Promise<void>;
   /** Switches the idle loop while idle (a short crossfade at a similar frame); false when nothing was done. */
   setIdle(name: string): Promise<boolean>;
-  /** The mouthOpen modes this avatar can do (every pack: 'all'; with mouth_open_dir.f32 in every loop also 'opening'). */
-  readonly mouthOpenModes: readonly MouthOpenMode[];
+  /** True when the mouth opening can be scaled (mouth_open_dir.f32 in every idle loop's pack). */
+  readonly mouthOpenAvailable: boolean;
   /** How wide the mouth opens from the next utterance on (create() option mouthOpen); null = as trained. */
   setMouthOpen(mouthOpen: MouthOpen | null): void;
   /** Subscribes to an event; returns the function that unsubscribes. */

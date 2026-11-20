@@ -105,7 +105,7 @@ export interface PackData {
   tone: ToneTables;
   /** Directory of the model weights. */
   modelDir: string;
-  /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none (then only mouthOpen mode 'all'). */
+  /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none (then the mouth opening cannot be scaled). */
   mouthOpenDir: Float32Array | null;
 }
 

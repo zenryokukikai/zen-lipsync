@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { checkMouthOpen, mouthOpenModes, scaleMouthOpen, OptionsError, AvatarPackError, resolveOptions, listAvatar, loadPackData, nodePackSource, MOUTH_OPEN_DIR_FILE } from '../dist/node/index.js';
+import { checkMouthOpen, scaleMouthOpen, OptionsError, AvatarPackError, resolveOptions, listAvatar, loadPackData, nodePackSource, MOUTH_OPEN_DIR_FILE } from '../dist/node/index.js';
 import { resolveMouthOpen } from '../dist/core/mouth-open.js';
 import { sentenceLatents } from '../dist/core/lipsync.js';
 
@@ -14,51 +14,45 @@ const unit = (k) => { const d = new Float32Array(N); d[k] = 1; return d; };
 const ones = () => new Float32Array(N).fill(1);
 const zeros = () => new Float32Array(N);
 
-test('mouthOpen: scale 1 leaves the latents byte for byte, in both modes', () => {
+test('mouthOpen: scale 1 leaves the latents byte for byte', () => {
   const z = Float32Array.from({ length: 3 * N }, (_, i) => Math.sin(i));
   const before = Buffer.from(z.buffer.slice(0));
-  for (const mode of ['opening', 'all']) {
-    scaleMouthOpen(z, new Float32Array(3 * N), 3, ones(), zeros(), unit(0), { scale: 1, mode });
-    assert.ok(Buffer.from(z.buffer).equals(before), mode);
-  }
+  scaleMouthOpen(z, new Float32Array(3 * N), 3, ones(), zeros(), unit(0), { scale: 1 });
+  assert.ok(Buffer.from(z.buffer).equals(before));
+  scaleMouthOpen(z, new Float32Array(3 * N), 3, ones(), zeros(), null, { scale: 1 });
+  assert.ok(Buffer.from(z.buffer).equals(before));
 });
 
-test('mouthOpen: below 1 the opening shrinks; opening keeps the rest of the move, all scales all of it', () => {
+test('mouthOpen: below 1 only the opening shrinks; the rest of the move and a closing frame are kept', () => {
   // closed mouth at 0 (ref 0, shift 0); the move: +2 along the opening direction (k=0), +1 elsewhere (k=1)
-  const mk = () => { const z = new Float32Array(N); z[0] = 2; z[1] = 1; return z; };
-  const z1 = mk();
-  scaleMouthOpen(z1, new Float32Array(N), 1, ones(), zeros(), unit(0), { scale: 0.5, mode: 'opening' });
+  const z1 = new Float32Array(N); z1[0] = 2; z1[1] = 1;
+  scaleMouthOpen(z1, new Float32Array(N), 1, ones(), zeros(), unit(0), { scale: 0.5 });
   assert.equal(z1[0], 1); assert.equal(z1[1], 1);
-  const z2 = mk();
-  scaleMouthOpen(z2, new Float32Array(N), 1, ones(), zeros(), null, { scale: 0.5, mode: 'all' });
-  assert.equal(z2[0], 1); assert.equal(z2[1], 0.5);
-  // a frame closing (negative along the opening) is left as it is by 'opening'
+  // a frame closing (negative along the opening) is left as it is
   const z3 = new Float32Array(N); z3[0] = -1;
-  scaleMouthOpen(z3, new Float32Array(N), 1, ones(), zeros(), unit(0), { scale: 0.5, mode: 'opening' });
+  scaleMouthOpen(z3, new Float32Array(N), 1, ones(), zeros(), unit(0), { scale: 0.5 });
   assert.equal(z3[0], -1);
-  // the closed mouth is the frame's reference in raw space (ref * scale + shift)
+  // the closed mouth is the frame's reference in raw space (ref * scale + shift): ref 0.5, scale 2, shift 1 -> 2
   const z4 = new Float32Array(N).fill(3);
-  const sc = new Float32Array(N).fill(2), sh = new Float32Array(N).fill(1);
-  scaleMouthOpen(z4, new Float32Array(N).fill(0.5), 1, sc, sh, null, { scale: 0.5, mode: 'all' });   // closed = 2
-  assert.equal(z4[0], 2.5);
+  scaleMouthOpen(z4, new Float32Array(N).fill(0.5), 1, new Float32Array(N).fill(2), new Float32Array(N).fill(1), unit(0), { scale: 0.5 });
+  assert.equal(z4[0], 2.5); assert.equal(z4[1], 3);
 });
 
-test('mouthOpen: settings are checked, and a mode the avatar cannot do is refused (not ignored)', () => {
-  assert.deepEqual(checkMouthOpen({ scale: 0.6 }, 'x'), { scale: 0.6, mode: 'opening' });
-  for (const bad of [null, 1, [], {}, { scale: 0 }, { scale: 2.5 }, { scale: NaN }, { scale: Infinity }, { scale: '0.5' }, { scale: 0.5, mode: 'wide' }, { scale: 0.5, extra: 1 }]) {
+test('mouthOpen: settings are checked; a mode and an avatar without the direction are refused (not ignored)', () => {
+  assert.deepEqual(checkMouthOpen({ scale: 0.6 }, 'x'), { scale: 0.6 });
+  for (const bad of [null, 1, [], {}, { scale: 0 }, { scale: 2.5 }, { scale: NaN }, { scale: Infinity }, { scale: '0.5' }, { scale: 0.5, mode: 'opening' }, { scale: 0.5, mode: 'all' }, { scale: 0.5, extra: 1 }]) {
     assert.throws(() => checkMouthOpen(bad, 'x'), OptionsError, JSON.stringify(bad));
   }
-  assert.deepEqual(mouthOpenModes(true), ['opening', 'all']);
-  assert.deepEqual(mouthOpenModes(false), ['all']);
-  assert.equal(resolveMouthOpen({ scale: 1, mode: 'opening' }, ['all'], 'x'), null);
-  assert.equal(resolveMouthOpen(null, [], 'x'), null);
-  assert.throws(() => resolveMouthOpen({ scale: 0.5 }, ['all'], 'x'), /cannot do mouthOpen mode "opening"/);
-  assert.deepEqual(resolveMouthOpen({ scale: 0.5, mode: 'all' }, ['all'], 'x'), { scale: 0.5, mode: 'all' });
-  assert.throws(() => scaleMouthOpen(new Float32Array(N), new Float32Array(N), 1, ones(), zeros(), null, { scale: 0.5, mode: 'opening' }), OptionsError);
+  assert.equal(resolveMouthOpen({ scale: 1 }, false, 'x'), null);
+  assert.equal(resolveMouthOpen(null, false, 'x'), null);
+  assert.throws(() => resolveMouthOpen({ scale: 0.5 }, false, 'x'), /cannot scale the mouth/);
+  assert.deepEqual(resolveMouthOpen({ scale: 0.5 }, true, 'x'), { scale: 0.5 });
+  assert.throws(() => scaleMouthOpen(new Float32Array(N), new Float32Array(N), 1, ones(), zeros(), null, { scale: 0.5 }), OptionsError);
   // create() option
-  assert.deepEqual(resolveOptions({ avatar: 'a', mouthOpen: { scale: 0.7, mode: 'all' } }).mouthOpen, { scale: 0.7, mode: 'all' });
+  assert.deepEqual(resolveOptions({ avatar: 'a', mouthOpen: { scale: 0.7 } }).mouthOpen, { scale: 0.7 });
   assert.equal(resolveOptions({ avatar: 'a', mouthOpen: { scale: 1 } }).mouthOpen, null);
   assert.throws(() => resolveOptions({ avatar: 'a', mouthOpen: { scale: 3 } }), OptionsError);
+  assert.throws(() => resolveOptions({ avatar: 'a', mouthOpen: { scale: 0.7, mode: 'all' } }), OptionsError);
 });
 
 async function pack({ dir }) {
@@ -93,8 +87,8 @@ test('sentenceLatents: the setting changes the latents the frame model gets; non
   const avatar = { meta: { latent_window: 5 }, feat: new Uint16Array(0), featSize: 0, refLatent: new Float32Array(2 * N), mouthOpenDir: unit(0), walk: (s) => s % 2 };
   const s = { startStep: 0, frames: 2, melFrames: 2, gather: [0, 1], mel: new Float32Array(2 * 80) };
   const plain = await sentenceLatents(lips, avatar, s);
-  assert.deepEqual(await sentenceLatents(lips, avatar, s, { scale: 1, mode: 'opening' }), plain);
-  const half = await sentenceLatents(lips, avatar, s, { scale: 0.5, mode: 'opening' });
+  assert.deepEqual(await sentenceLatents(lips, avatar, s, { scale: 1 }), plain);
+  const half = await sentenceLatents(lips, avatar, s, { scale: 0.5 });
   assert.equal(half[0], 0x3800);   // fp16 0.5 (was 1.0 = 0x3c00)
   assert.equal(plain[0], 0x3c00);
 });

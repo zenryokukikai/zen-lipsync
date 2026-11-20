@@ -68,7 +68,7 @@ export interface SentenceInput {
  * The sentence model over a sentence: the mouth-motion latent of every video frame, fp16 bits [frames,128].
  * mouthOpen: how wide the mouth opens (core/mouth-open.ts); null or scale 1 = as trained (the same bytes).
  */
-export async function sentenceLatents(lips: LipModels, avatar: LipAvatar, s: SentenceInput, mouthOpen: Required<MouthOpen> | null = null): Promise<Uint16Array> {
+export async function sentenceLatents(lips: LipModels, avatar: LipAvatar, s: SentenceInput, mouthOpen: MouthOpen | null = null): Promise<Uint16Array> {
   const T = s.melFrames;
   const us = Array.from({ length: s.frames }, (_, f) => avatar.walk(s.startStep + f));
   // reference input: the source frame's latent at the video frame nearest to each mel column

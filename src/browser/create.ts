@@ -1,5 +1,5 @@
 // create() for the browser: an AvatarHandle on the WebGPU player (no CPU fallback in the browser).
-import { resolveMouthOpen, type MouthOpen, type MouthOpenMode } from '../core/mouth-open.js';
+import { resolveMouthOpen, type MouthOpen } from '../core/mouth-open.js';
 import { OptionsError } from '../core/errors.js';
 import { Emitter } from '../core/events.js';
 import { resolveOptions } from '../core/options.js';
@@ -78,7 +78,7 @@ export async function create(options: BrowserCreateOptions): Promise<AvatarHandl
     box.remove();
     throw e;
   }
-  try { player.mouthOpen = resolveMouthOpen(o.mouthOpen, player.mouthOpenModes, 'create()'); } catch (e) {
+  try { player.mouthOpen = resolveMouthOpen(o.mouthOpen, player.mouthOpenAvailable, 'create()'); } catch (e) {
     player.destroy();
     box.remove();
     throw e;
@@ -104,11 +104,11 @@ class BrowserAvatar implements AvatarHandle {
   get idle(): string { return this.player.idle; }
   get idleLoops(): readonly string[] { return this.player.idleLoops; }
   get speaking(): boolean { return this.player.speaking; }
-  get mouthOpenModes(): readonly MouthOpenMode[] { return this.player.mouthOpenModes; }
+  get mouthOpenAvailable(): boolean { return this.player.mouthOpenAvailable; }
 
   setMouthOpen(mouthOpen: MouthOpen | null): void {
     this.live();
-    this.player.mouthOpen = resolveMouthOpen(mouthOpen, this.player.mouthOpenModes, 'setMouthOpen()');
+    this.player.mouthOpen = resolveMouthOpen(mouthOpen, this.player.mouthOpenAvailable, 'setMouthOpen()');
   }
 
   private live(): void { if (this.destroyed) throw new Error('ZEN-LipSync: the avatar was destroyed'); }
