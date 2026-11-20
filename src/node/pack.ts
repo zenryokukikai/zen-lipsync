@@ -15,6 +15,8 @@ export class NodePack implements LipAvatar {
   readonly feat: Uint16Array;
   readonly featSize: number;
   readonly refLatent: Float32Array;
+  /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none. */
+  readonly mouthOpenDir: Float32Array | null;
   readonly fromVideo: Float32Array[];
   readonly toVideo: Float32Array[];
   readonly modelDir: string;
@@ -26,6 +28,7 @@ export class NodePack implements LipAvatar {
     this.meta = pack.meta;
     this.feat = data.feat;
     this.refLatent = data.refLatent;
+    this.mouthOpenDir = data.mouthOpenDir;
     const [c, h, w] = pack.meta.feat_dims;
     this.featSize = c * h * w;
     this.fromVideo = data.tone.from_video.map((t) => Float32Array.from(t));

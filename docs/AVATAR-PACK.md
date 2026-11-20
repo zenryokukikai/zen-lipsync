@@ -46,6 +46,7 @@ An avatar is one pack per idle video plus the models they share (example: `avata
 The model files may live in the directory given by `models` (relative to the pack); Marine's packs share `../models`.
 | `features.f16` | 元フレームごとの特徴（fp16、`source_frames × 32 × 20 × 44`）/ Features per source frame |
 | `ref_latent.f32` | 元フレームごとの参照（float32、`source_frames × 128`）/ Reference latent per source frame |
+| `mouth_open_dir.f32` | 任意。口が開く向き（float32 128 個、長さ 1）。口の開き具合 `mouthOpen` の縮め方 'opening' に要る（無いパックは 'all' だけ）/ Optional: the direction the mouth-motion latent opens the mouth along (128 float32, unit length); `mouthOpen` mode 'opening' needs it |
 | `tone.json` | 任意。色の対応表 `{ "from_video": [3][256], "to_video": [3][256] }`。無ければ、モデルの変化をそのまま足す（新しいパックは入れない）/ Optional colour tables; without it the model change is added as it is (new packs leave it out) |
 | `frames.pack` | 版 2：全元フレームの口元の画像とマスクを 1 ファイルにまとめたもの（下の「frames.pack」）/ Version 2: every source frame's mouth crop and mask in one file (see "frames.pack") |
 | `frames/crop_NNN.png` | 版 1：元フレームごとの口元の画像（512 の顔切り出しのうち `crop_box` の範囲）/ Version 1: mouth crop per source frame |

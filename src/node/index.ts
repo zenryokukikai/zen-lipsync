@@ -2,6 +2,7 @@
 // models on the CPU (the frame model native: AVX-512 VNNI > AVX2 > SSE4.1 on linux-x64, else WebAssembly); the
 // avatar turns speech into video frames: frames() (raw RGB), render() (an MP4 / WebM file), stream() (fMP4 / WebM /
 // JPEG for delivery). ffmpeg (an external program) decodes the idle video and encodes the outputs.
+import type { MouthOpen } from '../core/mouth-open.js';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -11,7 +12,7 @@ import type { LipModels } from '../core/lipsync.js';
 import { listAvatar, modelPath, fileHash, MODEL_FILES, type PackRef } from '../core/pack.js';
 import { resolveOptions } from '../core/options.js';
 import { Worker } from 'node:worker_threads';
-import { CpuSentenceModel, parseSentenceWeights } from '../core/sentence-model.js';
+import { CpuSentenceModel, parseSentenceWeights, sentenceScaleShift } from '../core/sentence-model.js';
 import { logMel, MEL_SAMPLE_RATE } from '../core/mel.js';
 import { resample } from '../core/resample.js';
 import { NodeAvatar } from './avatar.js';
@@ -61,6 +62,8 @@ export interface NodeCreateOptions {
    */
   idleCache?: IdleCache;
   onProgress?: (p: { loadedBytes: number; file: string }) => void;
+  /** How wide the mouth opens (CreateOptions.mouthOpen; core/mouth-open.ts). */
+  mouthOpen?: MouthOpen;
 }
 
 /** The models of one avatar on the CPU, shared by every avatar of that model directory in this process. */
@@ -70,7 +73,7 @@ const modelCache = new Map<string, Promise<{ lips: LipModels; kernel: FrameKerne
 export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
   const t0 = performance.now();
   if (typeof options !== 'object' || options === null) throw new OptionsError('create(): options must be an object');
-  const known = ['avatar', 'assetsPath', 'assetsBaseUrl', 'backend', 'precision', 'idle', 'ffmpegPath', 'idleCache', 'onProgress'];
+  const known = ['avatar', 'assetsPath', 'assetsBaseUrl', 'backend', 'precision', 'idle', 'ffmpegPath', 'idleCache', 'onProgress', 'mouthOpen'];
   for (const k of Object.keys(options)) if (!known.includes(k)) throw new OptionsError(`create(): unknown option "${k}"`);
   const { assetsPath, assetsBaseUrl, backend = 'auto', precision, ffmpegPath, idleCache = 'stream' } = options;
   if (assetsPath !== undefined && assetsBaseUrl !== undefined) throw new OptionsError('create(): give assetsPath or assetsBaseUrl, not both');
@@ -82,7 +85,7 @@ export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
   if (typeof avatar === 'string' && /^[a-z0-9_-]+$/i.test(avatar) && (assetsPath || assetsBaseUrl)) avatar = `avatars/${avatar}/avatar.json`;
   const base = assetsPath ?? assetsBaseUrl;
   const o = resolveOptions({ avatar, ...(base !== undefined ? { assetsBaseUrl: base } : {}), ...(options.idle !== undefined ? { idle: options.idle } : {}),
-    ...(options.onProgress ? { onProgress: options.onProgress } : {}) });
+    ...(options.onProgress ? { onProgress: options.onProgress } : {}), ...(options.mouthOpen !== undefined ? { mouthOpen: options.mouthOpen } : {}) });
   const ffmpeg = resolveFfmpeg(ffmpegPath);
   let loaded = 0;
   const src = nodePackSource((n) => { loaded += n; o.onProgress({ loadedBytes: loaded, file: '' }); });
@@ -103,7 +106,9 @@ export async function create(options: NodeCreateOptions): Promise<NodeAvatar> {
   const { lips, kernel, prep } = await models;
   let pairs: IdleSwitchFile | null = null;
   if (listing.set?.idleSwitch && packs.length > 1) pairs = await src.json<IdleSwitchFile>(src.join(listing.dir, listing.set.idleSwitch)).catch(() => null);
-  return new NodeAvatar(new Map(packs.map((p) => [p.name, p])), lips, kernel, prep, pairs, listing.set, ffmpeg, performance.now() - t0, loaded);
+  const a = new NodeAvatar(new Map(packs.map((p) => [p.name, p])), lips, kernel, prep, pairs, listing.set, ffmpeg, performance.now() - t0, loaded);
+  try { a.setMouthOpen(o.mouthOpen); } catch (e) { a.destroy(); throw e; }
+  return a;
 }
 
 /** The float32 frame model's weights: frame.i8.wgw (as the browser), else frame.wgw. */
@@ -134,6 +139,7 @@ function loadModels(src: ReturnType<typeof nodePackSource>, pack: PackRef, backe
       const lips: LipModels = {
         backend: 'cpu',
         weightBytes: sb.byteLength + fbBytes,
+        latent: sentenceScaleShift(parseSentenceWeights(sb)),
         sentence: (mel, ref, T) => prep.sentence(mel, ref, T),
         frame: async (feat, z, n) => {
           const res = new Float32Array(n * out.length);

@@ -1,4 +1,5 @@
 import { fetchModel } from './model-cache.js';
+import { sentenceScaleShift } from '../core/sentence-model.js';
 import { dequantFrameI8, parseF32Weights, parseI8Weights, type I8File, type WeightFile } from '../core/frame-weights.js';
 export { dequantFrameI8 } from '../core/frame-weights.js';
 // ZEN-LipSync WebGPU runtime: the two lip-sync models in hand-written WGSL (no ML framework on the page).
@@ -306,6 +307,8 @@ export class WgslLips {
   bytes = 0;
   /** Bytes of the two weight files. */
   weightBytes = 0;
+  /** The sentence model's raw-latent scale and shift (core/mouth-open.ts), from sentence.wgw. */
+  latent: { scale: Float32Array; shift: Float32Array } = { scale: new Float32Array(128), shift: new Float32Array(128) };
   /** Bytes of the frame model's weight buffers on the GPU. */
   frameWeightBytes = 0;
   /** Load breakdown: both weight files fetched (ms), and the int8 -> float32 dequant at load ('i8' only, ms). */
@@ -335,6 +338,7 @@ export class WgslLips {
       }
     };
     const [sf, bw] = await Promise.all([frameFile(), loadWeights(`${base}/sentence.wgw`)]);
+    m.latent = sentenceScaleShift(bw as Record<string, Float32Array>);
     format = m.format;
     m.downloadMs = performance.now() - tf;
     m.weightBytes = loadedBytes - before;

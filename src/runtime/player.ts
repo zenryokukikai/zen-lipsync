@@ -6,6 +6,7 @@
 // depend on the idle video's position done ahead); the mouth then joins on the first video frame its patch is ready for. An avatar with several idle loops (avatar.json) can switch loops while idle (switchIdle).
 import { Avatar, Compositor, inferFrames, loadModels, sentenceLatents, speechMask, type LipModels, type LipPatch, type ModelOptions } from './avatar.js';
 import { chooseIdlePair, type IdleSwitchFile } from '../core/idle-switch.js';
+import { mouthOpenModes, type MouthOpen, type MouthOpenMode } from '../core/mouth-open.js';
 import { logMelYielding, MEL_SAMPLE_RATE, yieldToPage, type LogMel } from '../core/mel.js';
 import { listAvatar, type AvatarSet } from '../core/pack.js';
 import { melGather } from '../core/mel.js';
@@ -304,6 +305,11 @@ export class LipSyncPlayer {
     canvas.height = H;
     this.ctx = new AudioContext();
   }
+
+  /** How wide the mouth opens (core/mouth-open.ts); null = as trained. Set by the handle (create() / setMouthOpen). */
+  mouthOpen: Required<MouthOpen> | null = null;
+  /** The mouthOpen modes of this avatar: 'opening' only when every loop's pack has the direction. */
+  get mouthOpenModes(): MouthOpenMode[] { return mouthOpenModes([...this.loops.values()].every((l) => l.avatar.mouthOpenDir !== null)); }
 
   /** The avatar pack of the loop shown now. */
   get avatar(): Avatar { return this.shownLoop.avatar; }
@@ -633,7 +639,7 @@ export class LipSyncPlayer {
     const p = this.planClip(plan, (now + k) % walkLen, k - frac);
     const clip = this.startClip(p, soundAt, null);
     onStart?.(this.heardAt(soundAt));
-    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: p.walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel });
+    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: p.walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel }, this.mouthOpen);
     if (gen !== this.speakGen) return;
     // frames already on screen (or due before a patch could be drawn) are skipped: the mouth joins on the next one
     p.f = Math.min(p.frames, Math.max(0, Math.ceil(this.clipFrame(clip) + 0.5)));
@@ -770,7 +776,7 @@ export class LipSyncPlayer {
   /** Sentence latents and the first n frames of a clip whose frame 0 is shown at walk position walkStart (planClip). */
   private async prepareAt(plan: SpeechPlan, loop: Loop, walkStart: number, shift: number, n: number): Promise<Prepared> {
     const p = this.planClip(plan, walkStart, shift);
-    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel });
+    p.zl = await sentenceLatents(this.lips, loop.avatar, { startStep: walkStart, frames: p.frames, melFrames: plan.mel.melFrames, gather: p.gather, mel: plan.mel.mel }, this.mouthOpen);
     await this.batch(p, loop, Math.min(n, p.frames));
     return p;
   }

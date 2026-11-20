@@ -1,5 +1,6 @@
 // Avatar packs (docs/AVATAR-PACK.md): the formats, and loading them through a PackSource so the browser (fetch +
 // Cache Storage) and Node (files or URLs) share the same reading and checks.
+import { MOUTH_OPEN_DIR_FILE, checkMouthOpenDirection } from './mouth-open.js';
 import { AvatarPackError } from './errors.js';
 
 export interface Geometry {
@@ -104,6 +105,8 @@ export interface PackData {
   tone: ToneTables;
   /** Directory of the model weights. */
   modelDir: string;
+  /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none (then only mouthOpen mode 'all'). */
+  mouthOpenDir: Float32Array | null;
 }
 
 export const MODEL_FILES = { sentence: 'sentence.wgw', frameI8: 'frame.i8.wgw', frameF32: 'frame.wgw', frameCpu: 'frame.lip8' } as const;
@@ -177,10 +180,11 @@ export function modelPath(src: PackSource, pack: PackRef, file: string): { path:
 /** Reads a pack's features, reference latents and colour tables, checking their sizes. */
 export async function loadPackData(src: PackSource, pack: PackRef): Promise<PackData> {
   const m = pack.meta;
-  const [feat, ref, tone] = await Promise.all([
+  const [feat, ref, tone, dir] = await Promise.all([
     src.bytes(src.join(pack.dir, 'features.f16'), fileHash(m, 'features.f16')),
     src.bytes(src.join(pack.dir, 'ref_latent.f32'), fileHash(m, 'ref_latent.f32')),
     m.files['tone.json'] ? src.json<ToneTables>(src.join(pack.dir, 'tone.json')) : Promise.resolve(identityTone()),
+    m.files[MOUTH_OPEN_DIR_FILE] ? src.bytes(src.join(pack.dir, MOUTH_OPEN_DIR_FILE), fileHash(m, MOUTH_OPEN_DIR_FILE)) : Promise.resolve(null),
   ]);
   const [c, h, w] = m.feat_dims;
   const featSize = c * h * w;
@@ -188,7 +192,9 @@ export async function loadPackData(src: PackSource, pack: PackRef): Promise<Pack
   if (ref.byteLength !== m.source_frames * 128 * 4) throw new AvatarPackError(`${pack.dir}/ref_latent.f32: ${ref.byteLength} bytes, expected ${m.source_frames} x 128 float32 values`);
   if (!Array.isArray(tone.to_video) || tone.to_video.length !== 3 || !Array.isArray(tone.from_video) || tone.from_video.length !== 3) throw new AvatarPackError(`${pack.dir}/tone.json: expected 3 colour tables each way`);
   const modelDir = m.models ? src.join(pack.dir, m.models) : pack.dir;
-  return { feat: new Uint16Array(feat), refLatent: new Float32Array(ref), tone, modelDir };
+  let mouthOpenDir: Float32Array | null;
+  try { mouthOpenDir = checkMouthOpenDirection(dir, pack.dir); } catch (e) { throw new AvatarPackError((e as Error).message); }
+  return { feat: new Uint16Array(feat), refLatent: new Float32Array(ref), tone, modelDir, mouthOpenDir };
 }
 
 /** sha256 (hex) of bytes, with the Web Crypto API (browsers and Node 20+). */

@@ -1,5 +1,13 @@
 # 変更履歴
 
+## 1.4.0
+
+### 口の開き具合（`mouthOpen`）
+- `create({ mouthOpen: { scale, mode } })` と `setMouthOpen()` で、口の開き具合を変えられるようにしました。`scale` は 0 より大きく 2 以下（1 は学習どおり、小さくすると口があまり開かない。幼い子など）。`mode` は 'opening'（既定。開く向きの成分だけ縮め、唇の形は残す）か 'all'（閉じた口からの動き全体を縮める）。
+- 'opening' には、パックの任意のファイル `mouth_open_dir.f32`（口が開く向き）が要ります。無いパックでは 'all' だけです。使えるものは `mouthOpenModes` で分かります。使えない設定は、黙って無視せずにエラーにします。
+- 1 のときは、これまでとまったく同じ出力です。
+- `createRenderer()` も同じ `mouthOpen` と `setMouthOpen()`・`mouthOpenModes` を持ちます。
+
 ## 1.3.0
 
 ### ブラウザ：決めた時刻に話させる（`prepare` / `play`）

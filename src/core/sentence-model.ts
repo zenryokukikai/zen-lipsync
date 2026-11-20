@@ -13,6 +13,13 @@ export function parseSentenceWeights(buf: ArrayBuffer): SentenceWeights {
   return out;
 }
 
+/** The sentence model's output scale and shift (raw latent = model latent * scale + shift; core/mouth-open.ts). */
+export function sentenceScaleShift(w: SentenceWeights): { scale: Float32Array; shift: Float32Array } {
+  const scale = w['scale'], shift = w['shift'];
+  if (!scale || !shift || scale.length !== 128 || shift.length !== 128) throw new Error('sentence.wgw: no 128-value scale / shift');
+  return { scale, shift };
+}
+
 /**
  * Sentence model on the CPU: mel [T,80] + ref [T,128] -> latent [T,128]. The same graph as the WGSL kernels:
  * an input conv (208 -> 256), 7 residual blocks of two dilated convs (kernel 3, GroupNorm 8 + SiLU before each,

@@ -1,5 +1,6 @@
 // The lip-sync computation around the two models, shared by both entries: the sentence model's inputs and the
 // per-frame latents (fp16), and the frame model's inputs for a batch of video frames.
+import { scaleMouthOpen, type MouthOpen } from './mouth-open.js';
 
 /** The two models on one backend: WebGPU (browser) or the CPU (Node). */
 export interface LipModels {
@@ -10,6 +11,8 @@ export interface LipModels {
   sentence(mel: Float32Array, ref: Float32Array, T: number): Promise<Float32Array>;
   /** Frame model: feat [n,32,20,44], z [n,640] -> delta [n,3,160,352]. */
   frame(feat: Float32Array, z: Float32Array, n: number): Promise<Float32Array>;
+  /** The sentence model's raw-latent scale and shift (sentence.wgw; core/mouth-open.ts). */
+  readonly latent: { scale: Float32Array; shift: Float32Array };
 }
 
 const F16 = new Float32Array(65536);
@@ -46,6 +49,8 @@ export interface LipAvatar {
   readonly featSize: number;
   /** float32 [source frames, 128]. */
   readonly refLatent: Float32Array;
+  /** mouth_open_dir.f32 of the pack (core/mouth-open.ts), null when it has none. */
+  readonly mouthOpenDir?: Float32Array | null;
   /** Source frame shown at walk step (the walk loops). */
   walk(step: number): number;
 }
@@ -59,8 +64,11 @@ export interface SentenceInput {
   mel: Float32Array;
 }
 
-/** The sentence model over a sentence: the mouth-motion latent of every video frame, fp16 bits [frames,128]. */
-export async function sentenceLatents(lips: LipModels, avatar: LipAvatar, s: SentenceInput): Promise<Uint16Array> {
+/**
+ * The sentence model over a sentence: the mouth-motion latent of every video frame, fp16 bits [frames,128].
+ * mouthOpen: how wide the mouth opens (core/mouth-open.ts); null or scale 1 = as trained (the same bytes).
+ */
+export async function sentenceLatents(lips: LipModels, avatar: LipAvatar, s: SentenceInput, mouthOpen: Required<MouthOpen> | null = null): Promise<Uint16Array> {
   const T = s.melFrames;
   const us = Array.from({ length: s.frames }, (_, f) => avatar.walk(s.startStep + f));
   // reference input: the source frame's latent at the video frame nearest to each mel column
@@ -71,11 +79,16 @@ export async function sentenceLatents(lips: LipModels, avatar: LipAvatar, s: Sen
     ref.set(avatar.refLatent.subarray(us[j]! * 128, us[j]! * 128 + 128), t * 128);
   }
   const z = await lips.sentence(s.mel, ref, T);
-  const zl = new Uint16Array(s.frames * 128);
-  for (let f = 0; f < s.frames; f++) {
-    const g = s.gather[f]!;
-    for (let k = 0; k < 128; k++) zl[f * 128 + k] = toHalf(z[g * 128 + k]!);
+  // per video frame: the latent at its gathered mel column
+  const zf = new Float32Array(s.frames * 128);
+  for (let f = 0; f < s.frames; f++) zf.set(z.subarray(s.gather[f]! * 128, s.gather[f]! * 128 + 128), f * 128);
+  if (mouthOpen && mouthOpen.scale !== 1) {
+    const refs = new Float32Array(s.frames * 128);
+    for (let f = 0; f < s.frames; f++) refs.set(avatar.refLatent.subarray(us[f]! * 128, us[f]! * 128 + 128), f * 128);
+    scaleMouthOpen(zf, refs, s.frames, lips.latent.scale, lips.latent.shift, avatar.mouthOpenDir ?? null, mouthOpen);
   }
+  const zl = new Uint16Array(s.frames * 128);
+  for (let i = 0; i < zl.length; i++) zl[i] = toHalf(zf[i]!);
   return zl;
 }
 

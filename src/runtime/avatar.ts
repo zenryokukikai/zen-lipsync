@@ -49,12 +49,15 @@ export class Avatar implements LipAvatar {
   readonly base: string;
   readonly meta: PackMeta;
   readonly refLatent: Float32Array;
+  /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none. */
+  readonly mouthOpenDir: Float32Array | null;
 
   private constructor(pack: PackRef, data: Awaited<ReturnType<typeof loadPackData>>) {
     this.base = pack.dir;
     this.meta = pack.meta;
     this.feat = data.feat;
     this.refLatent = data.refLatent;
+    this.mouthOpenDir = data.mouthOpenDir;
     const [c, h, w] = pack.meta.feat_dims;
     this.featSize = c * h * w;
     this.modelBase = data.modelDir;
