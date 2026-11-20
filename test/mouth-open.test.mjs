@@ -92,3 +92,12 @@ test('sentenceLatents: the setting changes the latents the frame model gets; non
   assert.equal(half[0], 0x3800);   // fp16 0.5 (was 1.0 = 0x3c00)
   assert.equal(plain[0], 0x3c00);
 });
+
+test('mouthOpen: the scale only shrinks; above 1 is refused (create, setMouthOpen)', () => {
+  for (const scale of [1.0001, 1.2, 1.5, 2]) {
+    assert.throws(() => checkMouthOpen({ scale }, 'x'), /\(0, 1\]/, String(scale));
+    assert.throws(() => resolveMouthOpen({ scale }, true, 'x'), OptionsError);
+    assert.throws(() => resolveOptions({ avatar: 'a', mouthOpen: { scale } }), OptionsError);
+  }
+  assert.deepEqual(checkMouthOpen({ scale: 1 }, 'x'), { scale: 1 });
+});
