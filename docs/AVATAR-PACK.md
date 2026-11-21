@@ -51,6 +51,7 @@ The model files may live in the directory given by `models` (relative to the pac
 | `frames.pack` | バージョン 2：全元フレームの口元の画像とマスクを 1 ファイルにまとめたもの（下の「frames.pack」）/ Version 2: every source frame's mouth crop and mask in one file (see "frames.pack") |
 | `frames/crop_NNN.png` | バージョン 1：元フレームごとの口元の画像（512 の顔切り出しのうち `crop_box` の範囲）/ Version 1: mouth crop per source frame |
 | `frames/alpha_NNN.png` | バージョン 1：重ねるときのマスク（グレー、`rect` の大きさ）/ Version 1: patch mask per source frame |
+| `matte.webm` | 任意。背景を抜いた表示（`create({ matte: 'matte.webm' })`・`createRenderer({ matte })`）に使う縦 2 段の映像。上半分は人物の色（髪や輪郭の半透明の所は背景の色を除いた色）、下半分は人物の形（グレー、白＝人物）。待機映像と同じ幅、高さは 2 倍、同じフレーム数・25 fps、VP9 / Optional: the stacked video for the cut-out (`create({ matte: 'matte.webm' })`, `createRenderer({ matte })`): top half the person's colour (with the background's colour taken out where the person is see-through), bottom half the person's matte (grey, white = person); the idle video's width, twice its height, the same frames at 25 fps, VP9 |
 | `sample.wav` | 試し用の音声（任意）/ A sample speech clip (optional) |
 
 `.wgw`：`uint32` のヘッダー長（リトルエンディアン）、JSON `{"tensors": {name: {offset, shape, dtype?}}}`、データ。
