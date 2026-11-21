@@ -22,7 +22,7 @@ An avatar is one pack per idle video plus the models they share (example: `avata
 }
 ```
 
-`model`（省略可）：アバターのモデル一式の版です（例：`marine-1.0`）。読み込みには使いません。
+`model`（省略可）：アバターのモデル一式のバージョンです（例：`marine-1.0`）。読み込みには使いません。
 `model` (optional): the version of the avatar's model set (e.g. `marine-1.0`); not used for loading.
 
 `idle-switch.json`：`{ "version": 1, "sources": [...], "pairs": { "normal->angry": { "to": [...], "dist": [...] }, ... } }`。
@@ -48,9 +48,9 @@ The model files may live in the directory given by `models` (relative to the pac
 | `ref_latent.f32` | 元フレームごとの参照（float32、`source_frames × 128`）/ Reference latent per source frame |
 | `mouth_open_dir.f32` | 任意。口が開く向き（float32 128 個、長さ 1）。口の開き具合 `mouthOpen` に要る（無いパックでは使えない）/ Optional: the direction the mouth-motion latent opens the mouth along (128 float32, unit length); `mouthOpen` needs it |
 | `tone.json` | 任意。色の対応表 `{ "from_video": [3][256], "to_video": [3][256] }`。無ければ、モデルの変化をそのまま足す（新しいパックは入れない）/ Optional colour tables; without it the model change is added as it is (new packs leave it out) |
-| `frames.pack` | 版 2：全元フレームの口元の画像とマスクを 1 ファイルにまとめたもの（下の「frames.pack」）/ Version 2: every source frame's mouth crop and mask in one file (see "frames.pack") |
-| `frames/crop_NNN.png` | 版 1：元フレームごとの口元の画像（512 の顔切り出しのうち `crop_box` の範囲）/ Version 1: mouth crop per source frame |
-| `frames/alpha_NNN.png` | 版 1：重ねるときのマスク（グレー、`rect` の大きさ）/ Version 1: patch mask per source frame |
+| `frames.pack` | バージョン 2：全元フレームの口元の画像とマスクを 1 ファイルにまとめたもの（下の「frames.pack」）/ Version 2: every source frame's mouth crop and mask in one file (see "frames.pack") |
+| `frames/crop_NNN.png` | バージョン 1：元フレームごとの口元の画像（512 の顔切り出しのうち `crop_box` の範囲）/ Version 1: mouth crop per source frame |
+| `frames/alpha_NNN.png` | バージョン 1：重ねるときのマスク（グレー、`rect` の大きさ）/ Version 1: patch mask per source frame |
 | `sample.wav` | 試し用の音声（任意）/ A sample speech clip (optional) |
 
 `.wgw`：`uint32` のヘッダー長（リトルエンディアン）、JSON `{"tensors": {name: {offset, shape, dtype?}}}`、データ。
@@ -83,10 +83,10 @@ The model files may live in the directory given by `models` (relative to the pac
 - `walk`：動画のフレーム k が表示する元フレームの番号（往復ループ）。/ Source frame shown at video frame k (a ping-pong loop).
 - `geo`：元フレームごとに、口元の画像を動画のどこへ重ねるか。/ Where each source frame's mouth patch goes on the video.
 - `box`：フレームモデルが出力する口元の範囲（512 の顔切り出しの座標）。/ The frame model's mouth box in the 512 face crop.
-- `frames`（版 2）：口元の画像とマスクをまとめたファイルと、中の画像の形式。ファイルは `files` にも載せる。/ Version 2: the file with the mouth crops and masks, and the image type inside; the file is also listed in `files`.
-- 版 1 のパック（`frames` が無く、`frames/` の PNG を使う）も、そのまま読み込めます。/ Version 1 packs (no `frames`; the PNG files in `frames/`) still load unchanged.
+- `frames`（バージョン 2）：口元の画像とマスクをまとめたファイルと、中の画像の形式。ファイルは `files` にも載せる。/ Version 2: the file with the mouth crops and masks, and the image type inside; the file is also listed in `files`.
+- バージョン 1 のパック（`frames` が無く、`frames/` の PNG を使う）も、そのまま読み込めます。/ Version 1 packs (no `frames`; the PNG files in `frames/`) still load unchanged.
 
-## frames.pack（版 2 / version 2）
+## frames.pack（バージョン 2 / version 2）
 
 1 本の待機映像の、全元フレームの口元の画像（RGB）とマスク（グレー）を、1 ファイルにまとめたものです。1 回の取得で全部そろい、ブラウザは届いた分から使います。
 All source frames' mouth crops (RGB) and masks (grey) of one idle loop in one file: one download, and the browser uses frames as their bytes arrive.
@@ -99,4 +99,4 @@ All source frames' mouth crops (RGB) and masks (grey) of one idle loop in one fi
 | 以降 / then | 画像。元フレーム 0, 1, 2, … の順に、口元の画像、マスクの順 / The images: source frame 0, 1, 2, …, each crop then mask |
 
 - `frames[u]` は元フレーム u の、口元の画像とマスクの位置（ファイルの先頭からのバイト数）と長さ。/ `frames[u]`: byte offset (from the start of the file) and length of source frame u's crop and mask.
-- 画像は WebP（品質 90）。口元の画像は `crop_box` の大きさの RGB、マスクは `rect` の大きさのグレー（版 1 の PNG と同じ絵）。/ The images are WebP (quality 90): the crop is RGB of the `crop_box` size, the mask grey of the `rect` size (the same pictures as the version 1 PNG files).
+- 画像は WebP（品質 90）。口元の画像は `crop_box` の大きさの RGB、マスクは `rect` の大きさのグレー（バージョン 1 の PNG と同じ絵）。/ The images are WebP (quality 90): the crop is RGB of the `crop_box` size, the mask grey of the `rect` size (the same pictures as the version 1 PNG files).
