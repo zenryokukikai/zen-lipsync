@@ -12,9 +12,7 @@
 // scale 1 leaves the latents untouched (the same output bytes).
 import { OptionsError } from './errors.js';
 
-/** The setting: scale in (0, 1], 1 = unchanged. Only shrinking: above 1 the mouth would open wider than the model
- *  ever drew it, where the frame model sees latents it never trained on and the face breaks (marine at 1.5: the
- *  nostrils ringed dark, a line above the upper lip). */
+/** The setting: scale in (0, 1], 1 = unchanged. Only shrinking (above 1 is an OptionsError). */
 export interface MouthOpen { scale: number }
 
 /** Pack file of the opening direction (optional; a pack without it cannot scale the mouth). */
