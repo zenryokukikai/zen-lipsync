@@ -306,7 +306,7 @@ export class LipSyncPlayer {
     this.ctx = new AudioContext();
   }
 
-  /** How wide the mouth opens (core/mouth-open.ts); null = as trained. Set by the handle (create() / setMouthOpen). */
+  /** How wide the mouth opens (core/mouth-open.ts); null = unchanged. Set by the handle (create() / setMouthOpen). */
   mouthOpen: MouthOpen | null = null;
   /** True when the mouth opening can be scaled: every loop's pack has the direction. */
   get mouthOpenAvailable(): boolean { return [...this.loops.values()].every((l) => l.avatar.mouthOpenDir !== null); }

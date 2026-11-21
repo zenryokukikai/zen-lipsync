@@ -132,7 +132,7 @@ export class NodeAvatar implements AvatarHandle {
   get idle(): string { return this.shown.name; }
   get idleLoops(): readonly string[] { return [...this.packs.keys()]; }
   get speaking(): boolean { return this.busy; }
-  /** How wide the mouth opens (core/mouth-open.ts); null = as trained. */
+  /** How wide the mouth opens (core/mouth-open.ts); null = unchanged. */
   private mouthOpen: MouthOpen | null = null;
   get mouthOpenAvailable(): boolean { return [...this.packs.values()].every((p) => p.mouthOpenDir !== null); }
   setMouthOpen(mouthOpen: MouthOpen | null): void {

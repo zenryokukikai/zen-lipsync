@@ -2,7 +2,7 @@
 
 ## 1.4.0
 
-- 口の開き具合を変えられるようにしました（`create({ mouthOpen: { scale } })`・`setMouthOpen()`。`scale` は 0 より大きく 1 以下、1 は学習どおり）。使えるかは `mouthOpenAvailable` で分かります。同梱のアバターで使うには、アバターパック 1.1.4 以降が要ります。
+- 口の開き具合を変えられるようにしました（`create({ mouthOpen: { scale } })`・`setMouthOpen()`。`scale` は 0 より大きく 1 以下、1 は今までどおり）。使えるかは `mouthOpenAvailable` で分かります。同梱のアバターで使うには、アバターパック 1.1.4 以降が要ります。
 
 ## 1.3.0
 

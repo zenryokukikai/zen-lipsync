@@ -24,7 +24,7 @@ export interface CreateOptions {
   /** Called with the bytes of every file loaded (models, features, frames). */
   onProgress?: (p: LoadProgress) => void;
   /**
-   * How wide the mouth opens: { scale }. scale in (0, 1] (only shrinking; above 1 is an OptionsError), 1 = as trained (default); below 1 the mouth opens less.
+   * How wide the mouth opens: { scale }. scale in (0, 1] (only shrinking; above 1 is an OptionsError), 1 = unchanged (default); below 1 the mouth opens less.
    * Only the opening is scaled (lip shape kept); it needs the pack's mouth_open_dir.f32 — whether an
    * avatar has it: handle.mouthOpenAvailable. Also setMouthOpen().
    */
@@ -116,7 +116,7 @@ export interface AvatarHandle {
   setIdle(name: string): Promise<boolean>;
   /** True when the mouth opening can be scaled (mouth_open_dir.f32 in every idle loop's pack). */
   readonly mouthOpenAvailable: boolean;
-  /** How wide the mouth opens from the next utterance on (create() option mouthOpen); null = as trained. */
+  /** How wide the mouth opens from the next utterance on (create() option mouthOpen); null = unchanged. */
   setMouthOpen(mouthOpen: MouthOpen | null): void;
   /** Subscribes to an event; returns the function that unsubscribes. */
   on<K extends AvatarEventName>(event: K, listener: (e: AvatarEvents[K]) => void): () => void;

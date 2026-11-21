@@ -12,7 +12,7 @@
 // scale 1 leaves the latents untouched (the same output bytes).
 import { OptionsError } from './errors.js';
 
-/** The setting: scale in (0, 1], 1 = as trained. Only shrinking: above 1 the mouth would open wider than the model
+/** The setting: scale in (0, 1], 1 = unchanged. Only shrinking: above 1 the mouth would open wider than the model
  *  ever drew it, where the frame model sees latents it never trained on and the face breaks (marine at 1.5: the
  *  nostrils ringed dark, a line above the upper lip). */
 export interface MouthOpen { scale: number }
@@ -36,7 +36,7 @@ export function checkMouthOpen(v: unknown, where: string): MouthOpen {
 
 /**
  * A setting for an avatar that can (`available`) or cannot scale the mouth: checked (OptionsError when invalid or not
- * available), null for none / scale 1 (as trained). The one check of create() and setMouthOpen().
+ * available), null for none / scale 1 (unchanged). The one check of create() and setMouthOpen().
  */
 export function resolveMouthOpen(v: unknown, available: boolean, where: string): MouthOpen | null {
   if (v === undefined || v === null) return null;

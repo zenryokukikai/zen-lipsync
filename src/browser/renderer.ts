@@ -81,11 +81,11 @@ export class LipSyncRenderer {
   private readonly matteCanvas: OffscreenCanvas | null;
   private readonly scaled: { canvas: OffscreenCanvas; g: OffscreenCanvasRenderingContext2D } | null;
 
-  /** How wide the mouth opens (create()'s mouthOpen, core/mouth-open.ts); null = as trained. */
+  /** How wide the mouth opens (create()'s mouthOpen, core/mouth-open.ts); null = unchanged. */
   private mouthOpen: MouthOpen | null = null;
   /** True when the mouth opening can be scaled (the pack has mouth_open_dir.f32). */
   get mouthOpenAvailable(): boolean { return this.avatar.mouthOpenDir !== null; }
-  /** Changes how wide the mouth opens for the next frames() (null / scale 1 = as trained). OptionsError when this avatar cannot do the mode. */
+  /** Changes how wide the mouth opens for the next frames() (null / scale 1 = unchanged). OptionsError when this avatar cannot do the mode. */
   setMouthOpen(mouthOpen: MouthOpen | null): void { this.mouthOpen = resolveMouthOpen(mouthOpen, this.mouthOpenAvailable, 'setMouthOpen()'); }
   /** @internal use createRenderer() */
   constructor(readonly avatar: Avatar, readonly lips: LipModels, private readonly video: IdleFrames, readonly idleLoop: string, matte: boolean, width: number | undefined) {
