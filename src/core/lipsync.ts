@@ -99,18 +99,32 @@ function halfToFloat(d: Uint16Array): Float32Array {
 }
 
 /**
- * A log-mel value this low is silence: logMel() clamps every band to log(1e-5) = -11.51, so a frame whose loudest band
- * stays under log(1e-5) + 0.5 carried no sound (quiet room, the padding before/after a line).
+ * Level of a video frame: its loudest log-mel band. logMel() clamps every band to log(1e-5) = -11.51.
+ * SOUND_FROM: under it the frame carried no sound (quiet room, the padding before/after a line).
+ * VOICE_FROM: a frame this loud is voice (a 1 kHz tone at -80 dBFS reads -7.35, pink noise at -70 dBFS -8.51; the
+ * quietest frames of recorded lines in several voices and a whisper 30 dB down stay voiced next to it).
+ * Faint noise (-74 to -84 dB, -10.7..-8.7 here) before a line is sound but no voice: the frame model paints a broken
+ * mouth from it (a line's noisy lead-in). Levels are absolute (logMel is not normalised): a line whose noise
+ * floor itself reaches VOICE_FROM (room tone above about -70 dBFS) is drawn throughout, as before this rule. The rule
+ * looks within one chunk: frames under VOICE_FROM at a chunk's edge, next to voice in the neighbouring chunk, are not
+ * drawn (whole sentences, as TTS gives them, have their voice inside).
  */
-const SILENT_BELOW = Math.log(1e-5) + 0.5;
+const SOUND_FROM = Math.log(1e-5) + 0.5;
+const VOICE_FROM = -8;
+/** A sound frame counts as speech within VOICE_LEAD frames before a voice frame (soft onsets) or VOICE_TAIL after one
+ * (soft endings, quiet syllables, a breath between words). */
+const VOICE_LEAD = 4;
+const VOICE_TAIL = 10;
 
 /**
- * Which of a sentence's video frames have sound under them (false: silence). The frame model is trained on speech and
- * still predicts a mouth shape on silent input; drawing it over the idle face would double the lips. Silent frames
- * therefore keep the idle frame unchanged.
+ * Which of a sentence's video frames are speech (false: silence or faint noise). The frame model is trained on speech
+ * and still predicts a mouth shape on silent input; drawing it over the idle face would double or break the lips.
+ * Frames that are not speech therefore keep the idle frame unchanged. Every path (browser, Node, engine) uses this one
+ * rule.
  */
 export function speechMask(mel: Float32Array, melFrames: number, gather: number[], frames: number): boolean[] {
-  const out = new Array<boolean>(frames);
+  if (frames <= 0 || melFrames <= 0) return new Array<boolean>(Math.max(0, frames)).fill(false);
+  const level = new Float32Array(frames);
   for (let f = 0; f < frames; f++) {
     const t = Math.min(melFrames - 1, Math.max(0, gather[f] ?? 0));
     let loudest = -Infinity;
@@ -118,7 +132,14 @@ export function speechMask(mel: Float32Array, melFrames: number, gather: number[
       const v = mel[t * 80 + c]!;
       if (v > loudest) loudest = v;
     }
-    out[f] = loudest >= SILENT_BELOW;
+    level[f] = loudest;
+  }
+  const out = new Array<boolean>(frames).fill(false);
+  for (let f = 0; f < frames; f++) {
+    if (level[f]! < VOICE_FROM) continue;
+    for (let g = Math.max(0, f - VOICE_LEAD); g <= Math.min(frames - 1, f + VOICE_TAIL); g++) {
+      if (level[g]! >= SOUND_FROM) out[g] = true;
+    }
   }
   return out;
 }

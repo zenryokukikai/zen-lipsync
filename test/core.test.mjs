@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { resolveOptions, OptionsError, WebGPUUnavailableError, AvatarPackError, NotImplementedError, logMel, MEL_SAMPLE_RATE, listAvatar, loadPackData, nodePackSource, speechMask, inferFrames } from '../dist/node/index.js';
@@ -122,6 +123,47 @@ test('speechMask: silence under a frame is not drawn, and a silent frame keeps i
   const plane = 3 * 160 * 352;
   assert.ok(all.subarray(0, plane).every((v) => v === 0), 'the silent frame is left as it is');
   assert.ok(all.subarray(plane, 2 * plane).every((v) => v === 7), 'the frame with sound keeps its delta');
+});
+
+function fixturePcm(name) {
+  const b = readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
+  const x = new Float32Array(b.length / 2);
+  for (let i = 0; i < x.length; i++) x[i] = b.readInt16LE(i * 2) / 32768;
+  return x;
+}
+const maskOf = (pcm) => { const m = logMel(pcm); return speechMask(m.mel, m.melFrames, m.gather, m.frames); };
+
+test('speechMask: faint noise before a line is not speech; the line and a quiet whisper are', () => {
+  // a line's opening as played on a phone, first 1.4 s at 16 kHz: frames 0-7 near-silence (1 LSB),
+  // 8-20 faint noise (-74..-84 dB; loudest log-mel band -10.7..-8.7), the voice from frame 21 (-3.8 and up)
+  const opening = maskOf(fixturePcm('opening-noisy-lead.s16'));
+  assert.deepEqual(opening.slice(0, 17), new Array(17).fill(false), 'the noise more than 4 frames before the voice is not drawn');
+  assert.ok(opening.slice(17, 35).every(Boolean), 'the 4 frames before the voice (soft onset) and the voice are drawn');
+  // a whisper 30 dB down (macOS Whisper voice at -30 dB, first 1.2 s): voiced frames 0-15 (-7.3..-4.8), frame 16 its
+  // soft end (-8.3), then the 1-LSB floor (-10.9..-10.4); speech from frame 0, and 10 frames on after the last voice
+  const whisper = maskOf(fixturePcm('whisper-30db.s16'));
+  assert.ok(whisper.slice(0, 26).every(Boolean), 'a quiet whisper moves the mouth from its first frame and through its soft end');
+  assert.ok(whisper.slice(26).every((v) => !v), 'after the tail the faint rest is not speech');
+});
+
+test('speechMask: the window around a voice frame, true silence inside it, edges and empty input', () => {
+  // one mel column per video frame; every band of a frame at the given level
+  const of = (levels) => {
+    const mel = new Float32Array(levels.length * 80);
+    levels.forEach((v, f) => mel.fill(v, f * 80, (f + 1) * 80));
+    return speechMask(mel, levels.length, levels.map((_, f) => f), levels.length);
+  };
+  const SIL = Math.log(1e-5), FAINT = -10, VOICE = -5;
+  const at = (n, voiceAt, fill = FAINT) => { const l = new Array(n).fill(fill); for (const v of voiceAt) l[v] = VOICE; return l; };
+  const m = of(at(30, [10]));
+  assert.deepEqual(m.map(Number).join(''), '000000' + '1'.repeat(15) + '000000000', 'faint sound: 4 frames before the voice frame, 10 after');
+  const s = of(at(30, [10], SIL));
+  assert.deepEqual(s.map(Number).join(''), '0'.repeat(10) + '1' + '0'.repeat(19), 'true silence inside the window stays silent');
+  assert.deepEqual(of(at(12, [0, 11])).map(Number).join(''), '1'.repeat(12), 'voice at both ends: the window is clipped to the sentence');
+  assert.deepEqual(of(new Array(20).fill(-8)).every(Boolean), true, 'a frame at exactly -8 is voice');
+  assert.deepEqual(of(new Array(20).fill(-8.01)).some(Boolean), false, 'faint sound alone is not speech');
+  assert.deepEqual(speechMask(new Float32Array(0), 0, [], 0), []);
+  assert.deepEqual(speechMask(new Float32Array(0), 0, [0, 0], 2), [false, false], 'no mel columns: no speech');
 });
 
 test('tts: sentences are synthesised in order and spoken as one stream at 44.1 kHz', async () => {
