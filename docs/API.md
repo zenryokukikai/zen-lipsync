@@ -1,4 +1,4 @@
-# ZEN-LipSync SDK API（1.3.0）
+# ZEN-LipSync SDK API（1.5.0）
 
 組み込み方は [GUIDE.md](GUIDE.md)。この一覧は `node scripts/gen-api-md.mjs` で、型定義から作っています。
 
@@ -12,12 +12,12 @@
 | `BrowserCreateOptions` | <code>CreateOptions + { container, fit?, matte? }</code> | ブラウザの create() のオプション。 |
 | `createRenderer` | <code>createRenderer(options: RendererOptions): Promise&lt;LipSyncRenderer&gt;</code> | アバターを読み込み、音声から 1 コマずつ映像を返す renderer を作ります（実時間に縛られない書き出し、Worker でも可）。 |
 | `RendererOptions` | <code>CreateOptions + { matte?, width? }</code> | createRenderer() のオプション（matte・width を含む）。 |
-| `LipSyncRenderer` | <code>{ avatar, idleLoop, width, height, frames(), idle(), destroy() }</code> | frames()・idle()・destroy() を持つ renderer。 |
+| `LipSyncRenderer` | <code>{ avatar, idleLoop, mouthOpenAvailable, setMouthOpen(), width, height, frames(), idle(), destroy() }</code> | frames()・idle()・destroy() を持つ renderer。 |
 | `RenderFramesOptions` | <code>{ idleBeforeMs?, idleAfterMs?, audioSampleRate? }</code> | frames() のオプション（前後の待機・音のレート）。 |
 | `RenderedFrame` | <code>{ index, timeMs, image, speaking, audio, sampleRate }</code> | 書き出しの 1 コマ（VideoFrame と、その分の音）。 |
-| `CreateOptions` | <code>{ avatar, assetsBaseUrl?, weights?, idle?, onProgress? }</code> | create() のオプション。 |
+| `CreateOptions` | <code>{ avatar, assetsBaseUrl?, weights?, idle?, onProgress?, mouthOpen? }</code> | create() のオプション。 |
 | `AvatarFit` | <code>AvatarFit = 'contain' \| 'cover'</code> | 枠への収め方（既定 contain）。 |
-| `AvatarHandle` | <code>{ backend, idle, idleLoops, speaking, speak(), speakStream(), prepare(), play(), setIdle(), on(), stop(), pause(), resume(), frameTiming(), destroy() }</code> | 読み込んだアバター。 |
+| `AvatarHandle` | <code>{ backend, idle, idleLoops, speaking, speak(), speakStream(), prepare(), play(), setIdle(), mouthOpenAvailable, setMouthOpen(), on(), stop(), pause(), resume(), frameTiming(), destroy() }</code> | 読み込んだアバター。 |
 | `SpeechAudio` | <code>{ pcm, sampleRate }</code> | 音声：モノラルの Float32Array とサンプリングレート。 |
 | `PreparedSpeech` | <code>{ frames, durationMs, playable, outputDelayMs, dispose() }</code> | prepare() で準備した台詞（play() で 1 回鳴らす、dispose() で捨てる）。 |
 | `AvatarEvents` | <code>{ ready, speechstart, speechend, idlechange, error }</code> | on() のイベント。 |
@@ -28,11 +28,11 @@
 | `OptionsError` | <code>extends Error</code> | オプションが正しくないとき。 |
 | `AvatarPackError` | <code>extends Error</code> | アバターのファイルを読めないとき。 |
 | `PatchSync` | <code>PatchSync = 'video' \| 'next' \| 'canvas' \| 'auto'</code> | LipSyncPlayer の sync。Windows で口元の色がずれるときは 'canvas'。 |
-| `VERSION` | <code>const VERSION = "1.3.0";</code> | SDK のバージョン。 |
+| `VERSION` | <code>const VERSION = "1.5.0";</code> | SDK のバージョン。 |
 
 <details><summary>低レベル</summary>
 
-`AutoPairing`、`Avatar`、`AvatarEventName`、`AvatarListing`、`AvatarSet`、`Compositor`、`CpuSentenceModel`、`DrawInfo`、`DrawPhase`、`Emitter`、`FRAMES_PACK_MAGIC`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipPatch`、`LipSyncPlayer`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_CACHE`、`MODEL_FILES`、`ModelOptions`、`NotImplementedError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SourceFrame`、`ToneTables`、`View`、`WGSL_MAX_BATCH`、`WgslLips`、`avatarLayout`、`browserPackSource`、`checkAvatarSet`、`checkPackMeta`、`chooseIdlePair`、`dequantFrameI8`、`fetchModel`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`joinAssets`、`lipWeightsLabel`、`listAvatar`、`loadModels`、`loadPackData`、`logMel`、`melGather`、`modelPath`、`parseSentenceWeights`、`readFramesPackIndex`、`requestGpuAdapter`、`resample`、`resolveOptions`、`sentenceLatents`、`setModelHashes`、`sha256Hex`、`speechMask`
+`AutoPairing`、`Avatar`、`AvatarEventName`、`AvatarListing`、`AvatarSet`、`Compositor`、`CpuSentenceModel`、`DrawInfo`、`DrawPhase`、`Emitter`、`FRAMES_PACK_MAGIC`、`FrameOutput`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipPatch`、`LipSyncPlayer`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_CACHE`、`MODEL_FILES`、`MOUTH_ALPHA_FILE`、`MOUTH_OPEN_DIR_FILE`、`ModelOptions`、`MouthAlpha`、`MouthOpen`、`NotImplementedError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`PaintedMouth`、`PaintedWarp`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SourceFrame`、`ToneTables`、`View`、`WGSL_MAX_BATCH`、`WgslLips`、`avatarLayout`、`browserPackSource`、`checkAvatarSet`、`checkFrameOutput`、`checkMouthOpen`、`checkPackMeta`、`chooseIdlePair`、`dequantFrameI8`、`fetchModel`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`inverseColour`、`joinAssets`、`lipWeightsLabel`、`listAvatar`、`loadModels`、`loadPackData`、`logMel`、`melGather`、`modelPath`、`paintMouth`、`paintedMouth`、`parseSentenceWeights`、`readFramesPackIndex`、`requestGpuAdapter`、`resample`、`resolveOptions`、`scaleMouthOpen`、`sentenceLatents`、`sentenceScaleShift`、`setModelHashes`、`sha256Hex`、`speechMask`、`warpPainted`
 
 </details>
 
@@ -58,8 +58,8 @@
 | 名前 | 形 | 説明 |
 |---|---|---|
 | `create` | <code>create(options: NodeCreateOptions): Promise&lt;NodeAvatar&gt;</code> | アバターを CPU に読み込みます（ffmpeg が必要）。 |
-| `NodeCreateOptions` | <code>{ avatar, assetsPath?, assetsBaseUrl?, backend?, precision?, idle?, ffmpegPath?, idleCache?, onProgress? }</code> | create() のオプション。 |
-| `NodeAvatar` | <code>{ kernel, backend, idle, idleLoops, speaking, width, height, frames(), render(), stream(), setIdle(), speak(), speakStream(), prepare(), play(), on, stop(), pause(), resume(), frameTiming(), destroy() }</code> | 音声から frames()・render()・stream() を作ります。 |
+| `NodeCreateOptions` | <code>{ avatar, assetsPath?, assetsBaseUrl?, backend?, precision?, idle?, ffmpegPath?, idleCache?, onProgress?, mouthOpen? }</code> | create() のオプション。 |
+| `NodeAvatar` | <code>{ kernel, backend, idle, idleLoops, speaking, mouthOpenAvailable, setMouthOpen(), width, height, frames(), render(), stream(), setIdle(), speak(), speakStream(), prepare(), play(), on, stop(), pause(), resume(), frameTiming(), destroy() }</code> | 音声から frames()・render()・stream() を作ります。 |
 | `FramesOptions` | <code>{ idleBeforeMs?, idleAfterMs?, realtime?, startDelayMs?, audioSampleRate? }</code> | frames() などの共通オプション。 |
 | `RenderOptions` | <code>Omit&lt;FramesOptions, 'realtime'&gt; + { out, crf?, onProgress?, signal?, expectedFrames? }</code> | render() のオプション。 |
 | `StreamOptions` | <code>FramesOptions + { format, width?, crf? }</code> | stream() のオプション。 |
@@ -76,7 +76,7 @@
 
 <details><summary>低レベル</summary>
 
-`AvatarEventName`、`AvatarEvents`、`AvatarHandle`、`AvatarListing`、`AvatarPackError`、`AvatarSet`、`CpuSentenceModel`、`CreateOptions`、`Emitter`、`FRAMES_PACK_MAGIC`、`FrameKernel`、`FramePrecision`、`FrameTiming`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdleCache`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipWeights`、`LoadProgress`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_FILES`、`NodeBackend`、`NotImplementedError`、`OptionsError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`PreparedSpeech`、`RenderAudioOptions`、`RenderAudioProgress`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SpeechAudio`、`SpeechPrep`、`ToneTables`、`VERSION`、`VideoContainer`、`WavInfo`、`WebGPUUnavailableError`、`checkAvatarSet`、`checkPackMeta`、`chooseIdlePair`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`joinAssets`、`listAvatar`、`loadPackData`、`logMel`、`melGather`、`modelPath`、`nativeAddonPath`、`nodePackSource`、`parseSentenceWeights`、`readFramesPackIndex`、`resample`、`resolveOptions`、`sentenceLatents`、`sha256Hex`、`speechMask`、`wavAudio`
+`AvatarEventName`、`AvatarEvents`、`AvatarHandle`、`AvatarListing`、`AvatarPackError`、`AvatarSet`、`CpuSentenceModel`、`CreateOptions`、`Emitter`、`FRAMES_PACK_MAGIC`、`FrameKernel`、`FrameOutput`、`FramePrecision`、`FrameTiming`、`FramesPackIndex`、`Geometry`、`IDLE_GOOD_PAIR_DIST`、`IdleCache`、`IdlePairChoice`、`IdlePairTable`、`IdleSwitchFile`、`LipAvatar`、`LipModels`、`LipWeights`、`LoadProgress`、`LogMel`、`MEL_SAMPLE_RATE`、`MODEL_FILES`、`MOUTH_ALPHA_FILE`、`MOUTH_OPEN_DIR_FILE`、`MouthAlpha`、`MouthOpen`、`NodeBackend`、`NotImplementedError`、`OptionsError`、`PackData`、`PackMeta`、`PackRef`、`PackSource`、`PaintedMouth`、`PaintedWarp`、`PreparedSpeech`、`RenderAudioOptions`、`RenderAudioProgress`、`ResolvedOptions`、`SentenceInput`、`SentenceWeights`、`SpeechAudio`、`SpeechPrep`、`ToneTables`、`VERSION`、`VideoContainer`、`WavInfo`、`WebGPUUnavailableError`、`checkAvatarSet`、`checkFrameOutput`、`checkMouthOpen`、`checkPackMeta`、`chooseIdlePair`、`fileHash`、`framesPackFrameEnd`、`framesPackHeadLength`、`inferFrames`、`inverseColour`、`joinAssets`、`listAvatar`、`loadPackData`、`logMel`、`melGather`、`modelPath`、`nativeAddonPath`、`nodePackSource`、`paintMouth`、`paintedMouth`、`parseSentenceWeights`、`readFramesPackIndex`、`resample`、`resolveOptions`、`scaleMouthOpen`、`sentenceLatents`、`sentenceScaleShift`、`sha256Hex`、`speechMask`、`warpPainted`、`wavAudio`
 
 </details>
 
