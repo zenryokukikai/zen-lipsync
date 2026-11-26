@@ -2,6 +2,7 @@
 // tables, the mouth crops and alpha masks, and the two models' weights. See docs/AVATAR-PACK.md for the format.
 import { WebGPUUnavailableError } from '../core/errors.js';
 import { DeltaCleaner } from '../core/delta-clean.js';
+import { paintMouth, paintedMouth, warpPainted, type MouthAlpha, type PaintedMouth, type PaintedWarp } from '../core/frame-output.js';
 import { fileHash, listAvatar, loadPackData, type Geometry, type PackMeta, type PackRef } from '../core/pack.js';
 import { FramesPackStream } from './frames-pack-stream.js';
 import type { LipWeights } from '../core/types.js';
@@ -19,6 +20,8 @@ export interface SourceFrame {
   crop: ImageData;
   /** Patch alpha as the alpha channel of an image of the rect's size. */
   alpha: ImageBitmap;
+  /** 'absolute' packs: the frame's mouth alpha in the model's box. */
+  mouth?: Uint8Array;
 }
 
 /** Columns of the video frame that are shown (the page may crop the frame to a portrait). */
@@ -51,6 +54,8 @@ export class Avatar implements LipAvatar {
   readonly refLatent: Float32Array;
   /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none. */
   readonly mouthOpenDir: Float32Array | null;
+  /** 'absolute' packs: the mouth alphas (core/frame-output.ts); null for 'delta' packs. */
+  readonly mouthAlpha: MouthAlpha | null;
 
   private constructor(pack: PackRef, data: Awaited<ReturnType<typeof loadPackData>>) {
     this.base = pack.dir;
@@ -58,6 +63,7 @@ export class Avatar implements LipAvatar {
     this.feat = data.feat;
     this.refLatent = data.refLatent;
     this.mouthOpenDir = data.mouthOpenDir;
+    this.mouthAlpha = data.mouthAlpha;
     const [c, h, w] = pack.meta.feat_dims;
     this.featSize = c * h * w;
     this.modelBase = data.modelDir;
@@ -148,7 +154,7 @@ export class Avatar implements LipAvatar {
     const al = alphaData.data;
     for (let i = 0; i < al.length; i += 4) al[i + 3] = al[i]!;
     const alpha = await createImageBitmap(alphaData, { premultiplyAlpha: 'premultiply' });
-    return { geo, crop, alpha };
+    return { geo, crop, alpha, ...(this.mouthAlpha ? { mouth: this.mouthAlpha.of(u) } : {}) };
   }
 }
 
@@ -194,6 +200,9 @@ export class Compositor {
   private readonly pc = new OffscreenCanvas(1, 1);
   private readonly pg: OffscreenCanvasRenderingContext2D;
   private readonly cleaner: DeltaCleaner;
+  private painted: PaintedMouth | null = null;
+  private rectImage: ImageData | null = null;
+  private warped: PaintedWarp | undefined;
 
   /** x of the video frame maps to x - shown.x on the canvas. */
   constructor(private readonly shown: View, private readonly avatar: Avatar) {
@@ -203,14 +212,28 @@ export class Compositor {
     this.cleaner = new DeltaCleaner(box.x1 - box.x0, box.y1 - box.y0);
   }
 
+  /** True for an 'absolute' pack (core/frame-output.ts): the patch is the painted mouth, not the crop with a change. */
+  get absolute(): boolean { return this.avatar.meta.frame_output === 'absolute'; }
+
   /** A patch that draws nothing: the frames with no sound under them are shown exactly as the idle video has them. */
   async emptyPatch(x: number, y: number): Promise<LipPatch> {
     if (!EMPTY_PATCH) EMPTY_PATCH = createImageBitmap(new ImageData(1, 1));
     return { bitmap: await EMPTY_PATCH, x, y };
   }
 
-  /** Mouth patch of the index-th frame of a batch: the change added to the source crop, warped into the patch with its alpha. */
-  frame(f: SourceFrame, pred: Float32Array, index: number): LipPatch {
+  /**
+   * Mouth patch of the index-th frame of a batch, warped into the patch with its alpha. 'delta' packs: the change added
+   * to the source crop (the caller scales pred by the strength). 'absolute' packs: the painted mouth, its weight times
+   * strength.
+   */
+  frame(f: SourceFrame, pred: Float32Array, index: number, strength = 1): LipPatch {
+    if (this.absolute) {
+      const ma = this.avatar.mouthAlpha;
+      if (!ma || !f.mouth) throw new Error('an absolute pack needs its mouth alphas to paint');
+      const box = this.avatar.meta.box;
+      this.painted ??= paintedMouth((box.x1 - box.x0) * (box.y1 - box.y0));
+      return this.paintedPatch(f, paintMouth(pred, index, f.mouth, box, ma.colour, this.painted, strength));
+    }
     const [x0, y0, x1, y1] = f.geo.crop_box;
     const img = new ImageData(new Uint8ClampedArray(f.crop.data), x1 - x0, y1 - y0);
     this.addChange(img, f, pred, index);
@@ -246,9 +269,34 @@ export class Compositor {
     }
   }
 
-  /** Crop warped into the patch rect, cut by the patch alpha (canvas operations, no pixel read-back). */
-  private warp(f: SourceFrame, img: ImageData): LipPatch {
-    const [x0, y0] = f.geo.crop_box;
+  /**
+   * 'absolute' packs: the painted mouth (RGB, alpha = its weight) warped into the patch rect from the model's box
+   * (core/frame-output.ts warpPainted, bicubic), cut by the patch alpha; drawn source-over on the
+   * idle video it gives video * (1 - A) + painted * A (no crop pixel in it).
+   */
+  paintedPatch(f: SourceFrame, pm: PaintedMouth): LipPatch {
+    const [, , rw, rh] = f.geo.rect;
+    this.warped = warpPainted(pm, this.avatar.meta.box, f.geo, null, this.warped);
+    // one image of the largest rect so far (rects vary with the head), rows written at its own stride
+    if (!this.rectImage || this.rectImage.width < rw || this.rectImage.height < rh)
+      this.rectImage = new ImageData(Math.max(rw, this.rectImage?.width ?? 0), Math.max(rh, this.rectImage?.height ?? 0));
+    const d = this.rectImage.data, sw = this.rectImage.width, wp = this.warped, w = wp.out;
+    d.fill(0); // outside the part the warp wrote nothing is drawn
+    for (let y = wp.y0; y <= wp.y1; y++) for (let x = wp.x0; x <= wp.x1; x++) {
+      const i = (y * rw + x) * 4, o = (y * sw + x) * 4;
+      d[o] = w[i]!; d[o + 1] = w[i + 1]!; d[o + 2] = w[i + 2]!; d[o + 3] = w[i + 3]! * 255;
+    }
+    if (this.pc.width !== rw || this.pc.height !== rh) { this.pc.width = rw; this.pc.height = rh; }
+    this.pg.setTransform(1, 0, 0, 1, 0, 0);
+    this.pg.putImageData(this.rectImage, 0, 0, 0, 0, rw, rh);
+    this.pg.globalCompositeOperation = 'destination-in';
+    this.pg.drawImage(f.alpha, 0, 0);
+    this.pg.globalCompositeOperation = 'source-over';
+    return { bitmap: this.pc.transferToImageBitmap(), x: f.geo.abs_x - this.shown.x, y: f.geo.abs_y };
+  }
+
+  /** An image at (x0, y0) of the 512 crop warped into the patch rect, cut by the patch alpha (canvas operations, no pixel read-back). */
+  private warp(f: SourceFrame, img: ImageData, x0 = f.geo.crop_box[0], y0 = f.geo.crop_box[1]): LipPatch {
     if (this.mc.width !== img.width || this.mc.height !== img.height) { this.mc.width = img.width; this.mc.height = img.height; }
     this.mg.putImageData(img, 0, 0);
     const [, , rw, rh] = f.geo.rect;

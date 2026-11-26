@@ -4,6 +4,7 @@
 import type { LipAvatar } from '../core/lipsync.js';
 import { fileHash, loadPackData, type PackRef, type PackSource, type PackMeta } from '../core/pack.js';
 import { AvatarPackError } from '../core/errors.js';
+import type { MouthAlpha } from '../core/frame-output.js';
 import { decodePng, type DecodedImage } from './png.js';
 import { decodeWebp } from './webp.js';
 import { readFramesPackIndex } from '../core/frames-pack.js';
@@ -17,6 +18,8 @@ export class NodePack implements LipAvatar {
   readonly refLatent: Float32Array;
   /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none. */
   readonly mouthOpenDir: Float32Array | null;
+  /** 'absolute' packs: the mouth alphas (core/frame-output.ts); null for 'delta' packs. */
+  readonly mouthAlpha: MouthAlpha | null;
   readonly fromVideo: Float32Array[];
   readonly toVideo: Float32Array[];
   readonly modelDir: string;
@@ -29,6 +32,7 @@ export class NodePack implements LipAvatar {
     this.feat = data.feat;
     this.refLatent = data.refLatent;
     this.mouthOpenDir = data.mouthOpenDir;
+    this.mouthAlpha = data.mouthAlpha;
     const [c, h, w] = pack.meta.feat_dims;
     this.featSize = c * h * w;
     this.fromVideo = data.tone.from_video.map((t) => Float32Array.from(t));
@@ -77,7 +81,7 @@ export class NodePack implements LipAvatar {
     return this.meta.walk[((step % n) + n) % n]!;
   }
 
-  /** Crop (RGB) and alpha of source frame u. */
+  /** Crop (RGB), alpha and ('absolute' packs) mouth alpha of source frame u. */
   source(u: number): SourceImages {
     const s = this.decoded.get(u);
     if (s) { this.decoded.delete(u); this.decoded.set(u, s); return s; }
@@ -90,7 +94,7 @@ export class NodePack implements LipAvatar {
     if (!geo) throw new AvatarPackError(`${this.dir}: source frame ${u} has no geometry`);
     const rgb = crop.channels === 3 ? crop.data : toRgb(crop.data, crop.channels);
     const a = alpha.channels === 1 ? alpha.data : toGrey(alpha.data, alpha.channels);
-    const s = { geo, crop: rgb, cropW: crop.width, cropH: crop.height, alpha: a };
+    const s: SourceImages = { geo, crop: rgb, cropW: crop.width, cropH: crop.height, alpha: a, ...(this.mouthAlpha ? { mouth: this.mouthAlpha.of(u) } : {}) };
     this.decoded.set(u, s);
     return s;
   }

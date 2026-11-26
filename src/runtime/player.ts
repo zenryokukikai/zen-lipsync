@@ -792,13 +792,15 @@ export class LipSyncPlayer {
     const [pred, srcs] = await Promise.all([inferFrames(this.lips, avatar, us, p.zl, p.f, n, drawn), Promise.all(us.map((u) => avatar.frame(u)))]);
     this.timing.inferMs += performance.now() - tb;
     this.timing.frames += n;
-    applyStrength(pred, p.strength, p.f, n);
+    // 'delta' packs: the change is scaled by the strength here; 'absolute' packs: the strength weights the painted mouth
+    if (!loop.comp.absolute) applyStrength(pred, p.strength, p.f, n);
     // frames with no patch hold null (nothing drawn): a shared empty bitmap here was closed with the first clip dropped,
     // and every later silent frame then threw on drawImage (InvalidStateError), which ended the frame callbacks and the
     // mouth stopped while the sound went on
     // one patch at a time with the page let in between (each is 1.5-5 ms of canvas and pixel work on the main thread)
     for (let i = 0; i < srcs.length; i++) {
-      p.patches.set(p.f + i, p.strength[p.f + i]! > 0 ? loop.comp.frame(srcs[i]!, pred, i) : null);
+      const k = p.strength[p.f + i]!;
+      p.patches.set(p.f + i, k > 0 ? loop.comp.frame(srcs[i]!, pred, i, k) : null);
       await yieldToPage();
     }
     p.f += n;

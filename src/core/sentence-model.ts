@@ -26,8 +26,12 @@ export function sentenceScaleShift(w: SentenceWeights): { scale: Float32Array; s
  * dilations 1,2,4,8,4,2,1), GroupNorm + SiLU, a 256 -> 128 head with scale and shift.
  * Weight layout as uploaded by wgsl.ts: conv w [O/4][C][3][4] (4 output channels packed), b [O].
  */
+/** A native conv1d with the same arithmetic as CpuSentenceModel's (the Node addon's sconv); y is written. */
+export type NativeSentenceConv = (x: Float32Array, w: Float32Array, b: Float32Array, C: number, T: number, dil: number, r: Float32Array | null, y: Float32Array) => void;
+
 export class CpuSentenceModel {
-  constructor(private readonly w: SentenceWeights) {}
+  /** native: the addon's conv (same output, about 10x faster), else the TypeScript loop. */
+  constructor(private readonly w: SentenceWeights, private readonly native: NativeSentenceConv | null = null) {}
 
   run(mel: Float32Array, ref: Float32Array, T: number): Float32Array {
     const x = new Float32Array(208 * T);
@@ -94,6 +98,7 @@ export class CpuSentenceModel {
     const inp = norm ? this.gnSilu(x, C, T, norm) : x;
     const w = this.convWeights(name, C), bias = this.w[`${name}.b`]!;
     const y = new Float32Array(256 * T);
+    if (this.native) { this.native(inp, w, bias, C, T, dil, r, y); return y; }
     // fixed summation order (per output: bias, then c = 0.., k = 0..2, then + r), done for 4 outputs
     // at once so each input row is read once per 4 outputs (about 2.5x faster in V8)
     for (let o = 0; o < 256; o += 4) {

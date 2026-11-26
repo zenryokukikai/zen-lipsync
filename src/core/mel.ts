@@ -45,29 +45,53 @@ function melFilters(): Float64Array[] {
   return out;
 }
 
+/** cos and sin of -2*pi*q*k/n for q < r, k < m, as [cos, sin] at (q * m + k) * 2 (the same values the loop computed). */
+const twiddles = new Map<string, Float64Array>();
+function twiddle(n: number, r: number, m: number): Float64Array {
+  const key = `${n},${r},${m}`;
+  let t = twiddles.get(key);
+  if (!t) {
+    t = new Float64Array(r * m * 2);
+    for (let q = 0; q < r; q++) for (let k = 0; k < m; k++) { const a = (-2 * Math.PI * q * k) / n; t[(q * m + k) * 2] = Math.cos(a); t[(q * m + k) * 2 + 1] = Math.sin(a); }
+    twiddles.set(key, t);
+  }
+  return t;
+}
+
+/** Two scratch arrays per radix, reused across calls (the same arithmetic as fresh arrays, without an allocation per call). */
+const scratches = new Map<number, [Float64Array, Float64Array]>();
+function scratchOf(r: number): [Float64Array, Float64Array] {
+  let s = scratches.get(r);
+  if (!s) { s = [new Float64Array(r), new Float64Array(r)]; scratches.set(r, s); }
+  return s;
+}
+
 /** Recursive mixed-radix complex FFT (800 = 2^5 * 5^2), in place on re/im of length n. */
 function fft(re: Float64Array, im: Float64Array, n: number, stride: number, off: number, outRe: Float64Array, outIm: Float64Array, outOff: number): void {
   if (n === 1) { outRe[outOff] = re[off]!; outIm[outOff] = im[off]!; return; }
   const r = n % 2 === 0 ? 2 : n % 5 === 0 ? 5 : n;
   const m = n / r;
   for (let q = 0; q < r; q++) fft(re, im, m, stride * r, off + q * stride, outRe, outIm, outOff + q * m);
-  const tr = new Float64Array(r);
-  const ti = new Float64Array(r);
+  // taken after the recursion above (a child of the same radix uses the same arrays and is done by now)
+  const [tr, ti] = scratchOf(r);
+  const tw = twiddle(n, r, m);
+  const small = twiddle(r, r, r);
   for (let k = 0; k < m; k++) {
     for (let q = 0; q < r; q++) {
-      const a = (-2 * Math.PI * q * k) / n;
+      const c = tw[(q * m + k) * 2]!, sn = tw[(q * m + k) * 2 + 1]!;
       const xr = outRe[outOff + q * m + k]!;
       const xi = outIm[outOff + q * m + k]!;
-      tr[q] = xr * Math.cos(a) - xi * Math.sin(a);
-      ti[q] = xr * Math.sin(a) + xi * Math.cos(a);
+      tr[q] = xr * c - xi * sn;
+      ti[q] = xr * sn + xi * c;
     }
     for (let s2 = 0; s2 < r; s2++) {
       let sr = 0;
       let si = 0;
       for (let q = 0; q < r; q++) {
-        const a = (-2 * Math.PI * q * s2) / r;
-        sr += tr[q]! * Math.cos(a) - ti[q]! * Math.sin(a);
-        si += tr[q]! * Math.sin(a) + ti[q]! * Math.cos(a);
+        // -2*pi*q*s2/r: the table of n = r (its m is r too)
+        const c = small[(q * r + s2) * 2]!, sn = small[(q * r + s2) * 2 + 1]!;
+        sr += tr[q]! * c - ti[q]! * sn;
+        si += tr[q]! * sn + ti[q]! * c;
       }
       outRe[outOff + s2 * m + k] = sr;
       outIm[outOff + s2 * m + k] = si;

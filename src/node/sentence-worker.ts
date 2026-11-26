@@ -6,8 +6,13 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { logMel, MEL_SAMPLE_RATE } from '../core/mel.js';
 import { resample } from '../core/resample.js';
 import { CpuSentenceModel, parseSentenceWeights } from '../core/sentence-model.js';
+import { sentenceConv } from './frame-model.js';
+import { warmSpeechSteps } from './warm-up.js';
 
-const model = new CpuSentenceModel(parseSentenceWeights((workerData as { weights: ArrayBuffer }).weights));
+// the conv: native addon, else WebAssembly SIMD, else the TypeScript loop (frame-model.ts sentenceConv)
+const model = new CpuSentenceModel(parseSentenceWeights((workerData as { weights: ArrayBuffer }).weights), await sentenceConv());
+warmSpeechSteps(model);
+
 parentPort!.on('message', (m: { id: number; kind: 'mel'; pcm: Float32Array; sampleRate: number } | { id: number; kind: 'sentence'; mel: Float32Array; ref: Float32Array; T: number }) => {
   try {
     if (m.kind === 'mel') {

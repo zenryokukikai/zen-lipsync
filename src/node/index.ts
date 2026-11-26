@@ -17,7 +17,7 @@ import { logMel, MEL_SAMPLE_RATE } from '../core/mel.js';
 import { resample } from '../core/resample.js';
 import { NodeAvatar } from './avatar.js';
 import { resolveFfmpeg } from './ffmpeg.js';
-import { frameF32Blob, loadFrameModel, loadFrameModelF32, type FrameKernel, type FrameModel, type FramePrecision, type NodeBackend } from './frame-model.js';
+import { frameF32Blob, loadFrameModel, loadFrameModelF32, sentenceConv, type FrameKernel, type FrameModel, type FramePrecision, type NodeBackend } from './frame-model.js';
 import type { IdleCache } from './idle-video.js';
 import { NodePack } from './pack.js';
 import { nodePackSource } from './pack-source.js';
@@ -175,10 +175,11 @@ function speechPrep(weights: ArrayBuffer): SpeechPrep {
     w.unref();
   } catch { w = null; }
   if (!w) {
-    const m = new CpuSentenceModel(parseSentenceWeights(weights));
+    const sw = parseSentenceWeights(weights);
+    const mP = sentenceConv().then((conv) => new CpuSentenceModel(sw, conv));
     return {
       mel: async (pcm, rate) => logMel(rate === MEL_SAMPLE_RATE ? pcm : resample(pcm, rate, MEL_SAMPLE_RATE)),
-      sentence: async (mel, ref, T) => m.run(mel, ref, T),
+      sentence: async (mel, ref, T) => (await mP).run(mel, ref, T),
     };
   }
   const worker = w;

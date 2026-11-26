@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { CpuFrameModel } from './cpu-frame.js';
+import type { NativeSentenceConv } from '../core/sentence-model.js';
 import { dequantFrameI8, parseF32Weights, parseI8Weights } from '../core/frame-weights.js';
 
 export type NodeBackend = 'auto' | 'cpu-native' | 'cpu-wasm';
@@ -27,6 +28,9 @@ interface Addon {
   createF32(blob: Float32Array, kernel?: string): { model: unknown; kernel: 'avx512' | 'avx2' };
   runF32(model: unknown, feat: Float32Array, z: Float32Array, out: Float32Array): void;
   blobSizeF32(): number;
+  sconv?(x: Float32Array, w: Float32Array, b: Float32Array, C: number, T: number, dil: number, r: Float32Array | null, y: Float32Array): void;
+  /** The kernel sconv runs ('avx512' | 'avx2'), '' when the CPU has neither. */
+  sconvKernel?(): string;
 }
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -93,6 +97,58 @@ export function loadFrameModelF32(blob: Float32Array): FrameModel {
   const want = process.env['ZEN_LIPSYNC_KERNEL'];
   const r = a.createF32(blob, want === 'avx512' || want === 'avx2' ? want : 'auto');
   return new NativeF32Frame(a, r.model, `${r.kernel}-f32`);
+}
+
+/** The native conv1d of the sentence model, when the addon has it and this CPU can run it (else null). */
+export function nativeSentenceConv(): NativeSentenceConv | null {
+  try {
+    const a = addon();
+    return typeof a.sconv === 'function' && typeof a.sconvKernel === 'function' && a.sconvKernel() ? a.sconv.bind(a) : null;
+  } catch { return null; }
+}
+
+/**
+ * The sentence model's conv1d for this process: the addon's (AVX-512 / AVX2), else the same C built to WebAssembly
+ * SIMD128 (cpu/sconvw.wasm: about 4x the TypeScript loop on Apple silicon), else null (the TypeScript loop). The
+ * latents of all three agree within float32 rounding (each product rounded to float32 in C, kept in float64 in V8).
+ */
+export async function sentenceConv(): Promise<NativeSentenceConv | null> {
+  const n = nativeSentenceConv();
+  if (n) return n;
+  try { return await wasmSentenceConv(); } catch { return null; }
+}
+
+interface SconvModule { HEAPF32: Float32Array; _malloc(n: number): number; _free(p: number): void; _sconv(x: number, w: number, b: number, C: number, T: number, dil: number, r: number, y: number): void }
+
+/**
+ * The conv on cpu/sconvw.wasm: inputs copied into its memory (one block, grown as needed and kept for the next call:
+ * at most one sentence's worth, about 2 MB per 10 s of speech), the output copied out.
+ */
+export async function wasmSentenceConv(): Promise<NativeSentenceConv> {
+  const create = (await import(`${new URL('../../cpu', import.meta.url).href}/sconvw.mjs`)).default as () => Promise<SconvModule>;
+  const m = await create();
+  let base = 0, cap = 0;
+  const conv: NativeSentenceConv = (x, w, b, C, T, dil, r, y) => {
+    if (!(C > 0 && T > 0 && dil > 0) || x.length < C * T || w.length < 256 * C * 3 || b.length < 256 || y.length < 256 * T || (r && r.length < 256 * T)) throw new Error('sconv: sizes');
+    const n = C * T + 256 * C * 3 + 256 + (r ? 256 * T : 0) + 256 * T;
+    if (n * 4 > cap) {
+      if (base) m._free(base);
+      base = 0; cap = 0;
+      const p = m._malloc(n * 4);
+      if (!p) throw new Error('sconv: out of WebAssembly memory');
+      base = p; cap = n * 4;
+    }
+    const H = m.HEAPF32; // read after the malloc: a grown memory has a new view
+    let o = base >>> 2;
+    const px = o; H.set(x.subarray(0, C * T), o); o += C * T;
+    const pw = o; H.set(w.subarray(0, 256 * C * 3), o); o += 256 * C * 3;
+    const pb = o; H.set(b.subarray(0, 256), o); o += 256;
+    let pr = 0;
+    if (r) { pr = o; H.set(r.subarray(0, 256 * T), o); o += 256 * T; }
+    m._sconv(px * 4, pw * 4, pb * 4, C, T, dil, pr * 4, o * 4);
+    y.set(m.HEAPF32.subarray(o, o + 256 * T));
+  };
+  return conv;
 }
 
 /**

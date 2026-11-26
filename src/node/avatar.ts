@@ -125,7 +125,7 @@ export class NodeAvatar implements AvatarHandle {
   constructor(private readonly packs: Map<string, NodePack>, readonly lips: LipModels, readonly kernel: FrameKernel, private readonly prep: SpeechPrep,
     private readonly pairs: IdleSwitchFile | null, readonly set: AvatarSet | null, private readonly ffmpeg: string, loadMs: number, loadedBytes: number) {
     this.shown = packs.values().next().value as NodePack;
-    for (const p of packs.values()) this.comps.set(p, new NodeCompositor(p.meta, p.fromVideo, p.toVideo));
+    for (const p of packs.values()) this.comps.set(p, new NodeCompositor(p.meta, p.fromVideo, p.toVideo, p.mouthAlpha?.colour ?? null));
     queueMicrotask(() => this.events.emit('ready', { backend: 'cpu', loadMs, loadedBytes }));
   }
 

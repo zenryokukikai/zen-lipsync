@@ -7,6 +7,8 @@
 //   process (the weights are global to the library); init() again with the same bytes is allowed, other bytes refused.
 //   JS: a.init(Uint8Array weights, kernel?: 'auto'|'avx512'|'avx2'|'sse41') -> kernel; a.run(feat, z, out).
 // feat Float32Array [28160], z [640], out [168960]; run calls are synchronous (a few ms).
+// - the sentence model's conv1d (native/x86/sconv.c): a.sconv(x, w, b, C, T, dil, r|null, y); AVX-512F > AVX2,
+//   chosen once; a.sconvKernel() -> 'avx512' | 'avx2' | '' (none: the caller uses another conv).
 #include <node_api.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -87,7 +89,9 @@ static napi_value js_supported(napi_env env, napi_callback_info info) {
 
 static int supports_f32(int k) {
   __builtin_cpu_init();
-  if (k == 1) return __builtin_cpu_supports("avx512f");
+  // the AVX-512 float32 build uses exactly these (native/node/build.sh: F CD BW DQ VL + FMA)
+  if (k == 1) return __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd") && __builtin_cpu_supports("avx512bw")
+                     && __builtin_cpu_supports("avx512dq") && __builtin_cpu_supports("avx512vl") && __builtin_cpu_supports("fma");
   if (k == 2) return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
   return 0;
 }
@@ -129,6 +133,48 @@ static napi_value js_run_f32(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
+void sconv_avx512(const float *x, const float *w, const float *b, int C, int T, int dil, const float *r, float *y);
+void sconv_avx2(const float *x, const float *w, const float *b, int C, int T, int dil, const float *r, float *y);
+
+static int f32arr(napi_env env, napi_value v, float **p, size_t *n) {
+  void *data; size_t len; napi_typedarray_type t; napi_value ab; size_t off;
+  if (napi_get_typedarray_info(env, v, &t, &len, &data, &ab, &off) != napi_ok || t != napi_float32_array) return 0;
+  *p = data; *n = len; return 1;
+}
+
+/* The sentence conv's kernel, chosen once: 1 AVX-512F, 2 AVX2+FMA, 0 none (then sconvKernel() is '' and JS uses
+ * another conv). ZEN_LIPSYNC_KERNEL=avx2 or sse41 keeps it off AVX-512, as it does the frame models. */
+static int sconv_k;
+static pthread_once_t sconv_once = PTHREAD_ONCE_INIT;  /* several worker threads may ask at the same time */
+static void sconv_pick(void) {
+  const char *want = getenv("ZEN_LIPSYNC_KERNEL");
+  const int no512 = want && (!strcmp(want, "avx2") || !strcmp(want, "sse41"));
+  __builtin_cpu_init();
+  sconv_k = !no512 && __builtin_cpu_supports("avx512f") ? 1 : __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") ? 2 : 0;
+}
+static int sconv_kernel(void) { pthread_once(&sconv_once, sconv_pick); return sconv_k; }
+
+static napi_value js_sconv_kernel(napi_env env, napi_callback_info info) {
+  (void)info; napi_value v; const int k = sconv_kernel();
+  CHECK(napi_create_string_utf8(env, k == 1 ? "avx512" : k == 2 ? "avx2" : "", NAPI_AUTO_LENGTH, &v)); return v;
+}
+
+static napi_value js_sconv(napi_env env, napi_callback_info info) {
+  size_t argc = 8; napi_value argv[8]; CHECK(napi_get_cb_info(env, info, &argc, argv, NULL, NULL));
+  float *x, *w, *b, *r = NULL, *y; size_t nx, nw, nb, nr = 0, ny; int32_t C, T, dil;
+  if (argc < 8 || !f32arr(env, argv[0], &x, &nx) || !f32arr(env, argv[1], &w, &nw) || !f32arr(env, argv[2], &b, &nb)
+      || napi_get_value_int32(env, argv[3], &C) != napi_ok || napi_get_value_int32(env, argv[4], &T) != napi_ok || napi_get_value_int32(env, argv[5], &dil) != napi_ok
+      || !f32arr(env, argv[7], &y, &ny)) THROW("sconv(x, w, b, C, T, dil, r|null, y)");
+  napi_valuetype rt; napi_typeof(env, argv[6], &rt);
+  if (rt != napi_null && !f32arr(env, argv[6], &r, &nr)) THROW("sconv: r must be a Float32Array or null");
+  if (C <= 0 || T <= 0 || dil <= 0 || nx < (size_t)C * T || nw < (size_t)256 * C * 3 || nb < 256 || ny < (size_t)256 * T || (r && nr < (size_t)256 * T)) THROW("sconv: sizes");
+  const int k = sconv_kernel();
+  if (k == 1) sconv_avx512(x, w, b, C, T, dil, r, y);
+  else if (k == 2) sconv_avx2(x, w, b, C, T, dil, r, y);
+  else THROW("sconv: this CPU has neither AVX-512F nor AVX2 with FMA");
+  return NULL;
+}
+
 static napi_value js_blob_size_f32(napi_env env, napi_callback_info info) {
   (void)info; napi_value v; CHECK(napi_create_double(env, (double)lipf_avx512_blob_size(), &v)); return v;
 }
@@ -141,7 +187,9 @@ NAPI_MODULE_INIT() {
     { "createF32", NULL, js_create_f32, NULL, NULL, NULL, napi_default, NULL },
     { "runF32", NULL, js_run_f32, NULL, NULL, NULL, napi_default, NULL },
     { "blobSizeF32", NULL, js_blob_size_f32, NULL, NULL, NULL, napi_default, NULL },
+    { "sconv", NULL, js_sconv, NULL, NULL, NULL, napi_default, NULL },
+    { "sconvKernel", NULL, js_sconv_kernel, NULL, NULL, NULL, napi_default, NULL },
   };
-  napi_define_properties(env, exports, 6, d);
+  napi_define_properties(env, exports, 8, d);
   return exports;
 }

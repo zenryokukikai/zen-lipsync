@@ -1,6 +1,6 @@
 {
   "name": "@zenryokukikai/zen-lipsync",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "ZEN-LipSync SDK: real-time photoreal lip-sync — browser (WebGPU) and Node (CPU). Avatar packs: github.com/zenryokukikai/zen-lipsync-avatars",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -62,6 +62,7 @@
     "cpu/lip8r.c",
     "native/x86/lip8.c",
     "native/x86/lipf.c",
+    "native/x86/sconv.c",
     "native/node/*.c",
     "native/node/build.sh",
     "native/node/shim/**",

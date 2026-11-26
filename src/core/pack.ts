@@ -2,6 +2,7 @@
 // Cache Storage) and Node (files or URLs) share the same reading and checks.
 import { MOUTH_OPEN_DIR_FILE, checkMouthOpenDirection } from './mouth-open.js';
 import { AvatarPackError } from './errors.js';
+import { MOUTH_ALPHA_FILE, MouthAlpha, checkFrameOutput, checkModelColour, type FrameOutput } from './frame-output.js';
 
 export interface Geometry {
   /** Patch rectangle on the video frame: x, y, width, height. */
@@ -17,8 +18,12 @@ export interface Geometry {
 /** manifest.json of one avatar pack (one idle loop). */
 export interface PackMeta {
   format: 'zen-lipsync-avatar';
-  /** 1: frames/crop_NNN.png + frames/alpha_NNN.png. 2: the same images in one frames.pack (frames). */
-  version: 1 | 2;
+  /**
+   * 1: frames/crop_NNN.png + frames/alpha_NNN.png. 2: the same images in one frames.pack (frames). 3: version 2 with an
+   * 'absolute' frame model (frame_output, model_colour, mouth_alpha.u8; SDK 1.5.0 and later): an earlier SDK refuses it
+   * instead of drawing its output as a change.
+   */
+  version: 1 | 2 | 3;
   name: string;
   /** Video frame size [width, height] and frame rate. */
   frame_size: [number, number];
@@ -40,6 +45,10 @@ export interface PackMeta {
   models?: string;
   /** Version 2: the file holding every source frame's crop and mask (core/frames-pack.ts); also listed in files. */
   frames?: { pack: string; type: string };
+  /** What the frame model outputs (core/frame-output.ts): 'delta' (default) or 'absolute' (needs mouth_alpha.u8). */
+  frame_output?: FrameOutput;
+  /** 'absolute' packs: per channel, video value -> the model's colour (256 entries; core/frame-output.ts). */
+  model_colour?: number[][];
   license?: string;
   credit?: string;
 }
@@ -107,6 +116,8 @@ export interface PackData {
   modelDir: string;
   /** mouth_open_dir.f32 (core/mouth-open.ts), null when the pack has none (then the mouth opening cannot be scaled). */
   mouthOpenDir: Float32Array | null;
+  /** 'absolute' packs (core/frame-output.ts): the mouth alpha of every source frame; null for 'delta' packs. */
+  mouthAlpha: MouthAlpha | null;
 }
 
 export const MODEL_FILES = { sentence: 'sentence.wgw', frameI8: 'frame.i8.wgw', frameF32: 'frame.wgw', frameCpu: 'frame.lip8' } as const;
@@ -114,7 +125,7 @@ export const MODEL_FILES = { sentence: 'sentence.wgw', frameI8: 'frame.i8.wgw', 
 /** Checks a manifest.json (shape and sizes the runtime relies on). */
 export function checkPackMeta(meta: unknown, where: string): PackMeta {
   const m = meta as Partial<PackMeta> | null;
-  if (!m || m.format !== 'zen-lipsync-avatar' || (m.version !== 1 && m.version !== 2)) throw new AvatarPackError(`${where}: not a ZEN-LipSync avatar pack (version 1 or 2)`);
+  if (!m || m.format !== 'zen-lipsync-avatar' || (m.version !== 1 && m.version !== 2 && m.version !== 3)) throw new AvatarPackError(`${where}: not a ZEN-LipSync avatar pack (version 1, 2 or 3)`);
   const need = <K extends keyof PackMeta>(k: K, ok: (v: unknown) => boolean): void => {
     if (!ok(m[k])) throw new AvatarPackError(`${where}: "${String(k)}" is missing or invalid`);
   };
@@ -129,7 +140,14 @@ export function checkPackMeta(meta: unknown, where: string): PackMeta {
   need('latent_window', isInt);
   need('video', (v) => Array.isArray(v) && v.length > 0);
   need('files', (v) => typeof v === 'object' && v !== null);
-  if (m.version === 2) need('frames', (v) => typeof v === 'object' && v !== null && typeof (v as { pack?: unknown }).pack === 'string' && !!m.files?.[(v as { pack: string }).pack]);
+  checkFrameOutput(m.frame_output, where);
+  // an 'absolute' model only in a version 3 pack, and a version 3 pack is always 'absolute' (SDKs before 1.5.0 accept
+  // versions 1 and 2 only, so they refuse it rather than draw it wrong)
+  if ((m.frame_output === 'absolute') !== (m.version === 3)) throw new AvatarPackError(`${where}: frame_output "absolute" goes with manifest version 3 (version ${String(m.version)}, frame_output ${String(m.frame_output ?? 'delta')})`);
+  if (m.frame_output === 'absolute' && !m.files?.[MOUTH_ALPHA_FILE]) throw new AvatarPackError(`${where}: an "absolute" pack needs ${MOUTH_ALPHA_FILE}`);
+  if (m.frame_output === 'absolute' && m.files?.['tone.json']) throw new AvatarPackError(`${where}: an "absolute" pack has no tone.json`);
+  if (m.frame_output === 'absolute') checkModelColour(m.model_colour, where);
+  if (m.version === 2 || m.version === 3) need('frames', (v) => typeof v === 'object' && v !== null && typeof (v as { pack?: unknown }).pack === 'string' && !!m.files?.[(v as { pack: string }).pack]);
   return m as PackMeta;
 }
 
@@ -186,6 +204,9 @@ export async function loadPackData(src: PackSource, pack: PackRef): Promise<Pack
     m.files['tone.json'] ? src.json<ToneTables>(src.join(pack.dir, 'tone.json')) : Promise.resolve(identityTone()),
     m.files[MOUTH_OPEN_DIR_FILE] ? src.bytes(src.join(pack.dir, MOUTH_OPEN_DIR_FILE), fileHash(m, MOUTH_OPEN_DIR_FILE)) : Promise.resolve(null),
   ]);
+  const box = m.box;
+  const alphaBytes = m.frame_output === 'absolute' ? await src.bytes(src.join(pack.dir, MOUTH_ALPHA_FILE), fileHash(m, MOUTH_ALPHA_FILE)) : null;
+  const mouthAlpha = alphaBytes ? new MouthAlpha(new Uint8Array(alphaBytes), (box.x1 - box.x0) * (box.y1 - box.y0), m.source_frames, m.model_colour, pack.dir) : null;
   const [c, h, w] = m.feat_dims;
   const featSize = c * h * w;
   if (feat.byteLength !== m.source_frames * featSize * 2) throw new AvatarPackError(`${pack.dir}/features.f16: ${feat.byteLength} bytes, expected ${m.source_frames} x ${featSize} fp16 values`);
@@ -194,7 +215,7 @@ export async function loadPackData(src: PackSource, pack: PackRef): Promise<Pack
   const modelDir = m.models ? src.join(pack.dir, m.models) : pack.dir;
   let mouthOpenDir: Float32Array | null;
   try { mouthOpenDir = checkMouthOpenDirection(dir, pack.dir); } catch (e) { throw new AvatarPackError((e as Error).message); }
-  return { feat: new Uint16Array(feat), refLatent: new Float32Array(ref), tone, modelDir, mouthOpenDir };
+  return { feat: new Uint16Array(feat), refLatent: new Float32Array(ref), tone, modelDir, mouthOpenDir, mouthAlpha };
 }
 
 /** sha256 (hex) of bytes, with the Web Crypto API (browsers and Node 20+). */

@@ -14,3 +14,4 @@ export { chooseIdlePair, IDLE_GOOD_PAIR_DIST, type IdlePairTable, type IdleSwitc
 export { sentenceLatents, inferFrames, speechMask, type LipModels, type LipAvatar, type SentenceInput } from './lipsync.js';
 export { CpuSentenceModel, parseSentenceWeights, sentenceScaleShift, type SentenceWeights } from './sentence-model.js';
 export { checkMouthOpen, scaleMouthOpen, MOUTH_OPEN_DIR_FILE, type MouthOpen } from './mouth-open.js';
+export { paintMouth, paintedMouth, warpPainted, inverseColour, checkFrameOutput, MouthAlpha, MOUTH_ALPHA_FILE, type FrameOutput, type PaintedMouth, type PaintedWarp } from './frame-output.js';

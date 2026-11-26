@@ -170,10 +170,11 @@ export class LipSyncRenderer {
         const strength = Float32Array.from({ length: m }, (_, i) => p.strength[f + i] ?? 0);
         const any = strength.some((k) => k > 0);
         const pred = any ? await inferFrames(this.lips, this.avatar, us, p.zl, f, m, drawn) : null;
-        if (pred) applyStrength(pred, strength, 0, m);
+        // 'delta' packs: the change is scaled by the strength here; 'absolute' packs: the strength weights the painted mouth
+        if (pred && !this.comp.absolute) applyStrength(pred, strength, 0, m);
         for (let i = 0; i < m; i++) {
           let patch = null;
-          if (pred && strength[i]! > 0) patch = this.comp.frame(await this.avatar.frame(us[i]!), pred, i);
+          if (pred && strength[i]! > 0) patch = this.comp.frame(await this.avatar.frame(us[i]!), pred, i, strength[i]!);
           yield await this.out(tl, patch, true);
         }
       }
