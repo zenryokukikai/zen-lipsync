@@ -2,7 +2,7 @@
 
 実写アバターの音声駆動リップシンク SDK。ブラウザ（WebGPU）と Node.js（CPU）で動作します。
 
-バージョン 1.1.1。
+バージョン 1.5.0。
 
 各アバターの voice（ZEN-TTS）を Node.js（CPU）でレンダリングしたサンプルです。
 
@@ -21,9 +21,9 @@
 
 | アバター | id | model | サイズ |
 |---|---|---|---|
-| 全力 マリン（ぜんりょく まりん） | `marine` | marine-1.0 | 84 MB |
-| 全力 ハシロウ（ぜんりょく はしろう） | `hashiro` | hashiro-1.0 | 95 MB |
-| 全力 キッカ（ぜんりょく きっか） | `kikka` | kikka-1.0 | 56 MB |
+| 全力 マリン（ぜんりょく まりん） | `marine` | marine-2.0 | 81 MB |
+| 全力 ハシロウ（ぜんりょく はしろう） | `hashiro` | hashiro-2.0 | 91 MB |
+| 全力 キッカ（ぜんりょく きっか） | `kikka` | kikka-2.0 | 53 MB |
 
 アバターパック（モデルと素材）は [zenryokukikai/zen-lipsync-avatars](https://github.com/zenryokukikai/zen-lipsync-avatars )。モデルはアバターごとに学習済みで、他の顔・映像には使えません。新しいアバターのモデル作成は全力機械（https://zenryokukikai.com ）へご依頼ください。
 
@@ -45,14 +45,15 @@ npm レジストリには公開していません。GitHub から指定します
 
 ```sh
 # npm
-npm i github:zenryokukikai/zen-lipsync#v1.3.0
+npm i github:zenryokukikai/zen-lipsync#v1.5.0
 # pnpm
-pnpm add github:zenryokukikai/zen-lipsync#v1.3.0
+pnpm add github:zenryokukikai/zen-lipsync#v1.5.0
 # yarn
-yarn add github:zenryokukikai/zen-lipsync#v1.3.0
+yarn add github:zenryokukikai/zen-lipsync#v1.5.0
 ```
 
-- `#v1.3.0` はタグまたはコミットハッシュで固定してください。
+- `#v1.5.0` はタグまたはコミットハッシュで固定してください。
+- 同梱のアバター 1.2.0（`zen-lipsync-avatars#v1.2.0`、口を描くモデル）は SDK 1.5.0 以降で読めます。1.4.0 以前の SDK は読み込みを止めます（エラー「version 1 or 2」）。前のアバター 1.1.4 は 1.5.0 でもそのまま使えます。
 - Node.js 26.12.1（`.mise.toml` で固定、`mise install`）。
 - アバターパックは同梱されません。zen-lipsync-avatars を配置して `avatar` / `assetsPath` / `assetsBaseUrl` で指定します。
 - TTS 連携には `github:zenryokukikai/zen-tts#v1.2.0` を追加します。
@@ -236,20 +237,22 @@ const r = await renderAudioFile({
 - 同じアバターで何本も作るときは、`create()` と `renderAudio(avatar, chunks, opts)` を分けて使います（アバターの読み込みが 1 回で済みます）。
 - 例：`node examples/render-audio.mjs marine /path/to/zen-lipsync-avatars in.wav out.mp4`
 
-**速さ**（Intel Xeon Silver 4316、CPU 1 本に固定、8.12 秒の音声、動画の書き出しを除く）
+**速さ**（Intel Xeon Silver 4316、CPU 1 本に固定、8.12 秒の音声、`create()` と `frames()`、動画の書き出しを除く。マリン 1.2.0、SDK 1.5.0。3 回測った中央値）
 
 | 版 | フレームモデル（1 フレーム） | 全体（合成込み） | 実時間に対する時間 |
 |---|---|---|---|
-| ネイティブ AVX-512、float32（既定） | 9.0〜10.0 ms | 約 26〜27 fps | 0.93〜0.95 |
-| ネイティブ AVX2、float32（既定） | 15.4〜16.2 ms | 約 23 fps | 1.08 |
-| ネイティブ AVX-512 VNNI、`precision: 'int8'` | 2.9 ms | 約 40 fps（`idleCache: 'memory'` なら約 47 fps） | 0.62（0.52） |
-| ネイティブ AVX2、`precision: 'int8'` | 26.6 ms | 約 20 fps | 1.22 |
-| ネイティブ SSE4.1、`precision: 'int8'` | 29.8 ms | 約 19 fps | 1.30 |
-| WebAssembly（SIMD128）、int8 | 29.0 ms | 約 19.5 fps | 1.27 |
+| ネイティブ AVX-512、float32（既定） | 9.4 ms | 約 48 fps | 0.52 |
+| ネイティブ AVX2、float32（既定） | 15.6 ms | 約 37 fps | 0.67 |
+| ネイティブ AVX-512 VNNI、`precision: 'int8'` | 3.1 ms | 約 70 fps | 0.36 |
+| ネイティブ AVX2、`precision: 'int8'` | 27.5 ms | 約 26 fps | 0.96 |
+| WebAssembly（SIMD128）、int8 | 29.1 ms | 約 25 fps | 1.01 |
+| WebAssembly（SIMD128）、int8、MacBook Pro（M3 Max）、Node.js | 23.1 ms | 約 37 fps | 0.68 |
 
-float32（既定）は、フレームモデルの計算をすべて float32 で行います（重みは `frame.i8.wgw` を読み込み時に一度だけ float32 に戻したもので、ブラウザと同じ出力になります）。`precision: 'int8'` は途中の計算も int8 に丸めるため速く、アバターによっては口元のまわりに細かい粒が出ます。float32 の 2 行は、ほかの処理が動いているマシン（ロードアベレージ 4〜7）で 10.43 秒の音声を測ったもので、同じ条件の int8（AVX-512 VNNI）は約 32〜33 fps、0.76〜0.78 でした。
+1.4.0 とマリン 1.1.4（同じマシン・同じ条件、交互に測定）では、上から約 30・25・36・19・19 fps、Mac は約 29 fps でした。速くなったのは文モデルと音声の前処理（Node の文モデルの計算をネイティブ／WebAssembly にした）と、合成の作業が減ったためで、フレームモデルの時間は同じです。
 
-1 未満なら実時間より速く作れます。CPU 1 本でリアルタイムに間に合うのは AVX-512 の float32 と AVX-512 VNNI の int8 です（AVX2／SSE4.1／WebAssembly 版で `realtime: true` の配信をするなら、AVX-512 の CPU か、文モデル用にもう 1 本おすすめします）。音声 1 秒あたり、文モデルなどの準備に CPU 約 0.3 秒を別スレッドで使います。
+float32（既定）は、フレームモデルの計算をすべて float32 で行います（重みは `frame.i8.wgw` を読み込み時に一度だけ float32 に戻したもので、ブラウザと同じ出力になります）。`precision: 'int8'` は途中の計算も int8 に丸めるため速く、アバターによっては口元のまわりに細かい粒が出ます。
+
+1 未満なら実時間より速く作れます。CPU 1 本でリアルタイムに間に合うのは、AVX-512 と AVX2 の float32、AVX-512 VNNI と AVX2 の int8 です（WebAssembly 版で `realtime: true` の配信をするなら、文モデル用にもう 1 本おすすめします）。音声 1 秒あたり、文モデルなどの準備に CPU 約 0.3 秒を別スレッドで使います。
 
 **同時に動かす数とメモリ**
 - 1 つのアバターは、同時に 1 つの出力だけを作ります。並行して作るときは `create()` をその数だけ呼びます。モデルの重みはプロセスの中で共有します。
