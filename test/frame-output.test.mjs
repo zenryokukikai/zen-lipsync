@@ -374,3 +374,39 @@ test('warpPainted: a mirrored axis-aligned matrix (negative scale) is drawn (the
   const w = warp(pm, mbox, geo, null);
   assert.ok(Math.abs(w.out[(6 * bw + 10) * 4] - 100) < 1e-3 && w.out[(6 * bw + 10) * 4 + 3] === 1);
 });
+
+test('NodeAvatar (absolute pack): frames() draws the painted mouth at full weight on speech frames, and silent frames after the speech are the idle video exactly (no grey, no fade toward 127.5)', async () => {
+  const { NodeAvatar } = await import('../dist/node/avatar.js');
+  const bw = 352, bh = 160, plane = bw * bh, W = 400, H = 200, L = 4;
+  const box = { y0: 0, y1: bh, x0: 0, x1: bw };
+  const ident = Float32Array.from({ length: 256 }, (_, i) => i);
+  const meta = { frame_size: [W, H], fps: 25, walk: [0, 1, 2, 3], latent_window: 5, box, geo: {}, frame_output: 'absolute' };
+  const video = { frame: async () => Buffer.alloc(W * H * 3, 10), bytes: 0, close() {} };
+  const geo = { rect: [0, 0, bw, bh], matrix: [[1, 0, 0], [0, 1, 0]], abs_x: 20, abs_y: 20, crop_box: [0, 0, bw, bh] };
+  const mouth = new Uint8Array(plane).fill(255);
+  const pack = { name: 'normal', meta, feat: new Uint16Array(L * 28160), featSize: 28160, refLatent: new Float32Array(L * 128), fromVideo: [ident, ident, ident], toVideo: [ident, ident, ident],
+    mouthAlpha: { colour: [ident, ident, ident], of: () => mouth }, video, walk: (s) => meta.walk[((s % L) + L) % L],
+    source: () => ({ geo, crop: new Uint8Array(plane * 3).fill(77), cropW: bw, cropH: bh, alpha: new Uint8Array(plane).fill(255), mouth }), bytes: 0, close() {} };
+  // the frame model paints 200 everywhere (K = (200 - 127.5) * win)
+  const win = F.boxWindow(bh, bw);
+  const lips = { backend: 'cpu', weightBytes: 0, sentence: async (_m, _r, T) => new Float32Array(T * 128),
+    frame: async (_f, _z, n) => { const o = new Float32Array(n * 3 * plane); for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) for (let j = 0; j < plane; j++) o[(i * 3 + c) * plane + j] = 72.5 * win[j]; return o; } };
+  // 0.4 s of speech, then 0.4 s of silence in the same clip (the speech mask is 0 there)
+  const sp = 10;
+  const prep = { mel: async (pcm, rate) => { const frames = Math.floor((pcm.length / rate) * 25); const melFrames = Math.floor((pcm.length / rate) * 80) + 1;
+      const mel = new Float32Array(melFrames * 80).fill(-20); for (let r = 0; r < Math.round(sp / 25 * 80); r++) mel.fill(2, r * 80, r * 80 + 80);
+      return { mel, melFrames, frames, gather: Array.from({ length: frames }, (_, i) => Math.min(Math.round((i / 25) * 80), melFrames - 1)) }; }, sentence: lips.sentence };
+  const a = new NodeAvatar(new Map([['normal', pack]]), lips, 'wasm', prep, null, null, 'ffmpeg', 0, 0);
+  const pcm = new Float32Array(24000 * 0.8); pcm.fill(0.5, 0, 24000 * 0.4);
+  const got = [];
+  for await (const f of a.frames({ pcm, sampleRate: 24000 }, { idleAfterMs: 80 })) got.push(f);
+  const at = (f, x, y) => [...f.rgb.subarray((y * W + x) * 3, (y * W + x) * 3 + 3)];
+  // frames 0..sp-1 have sound (the speech mask), the rest of the clip and the idle after it none
+  const speech = got.slice(0, sp), silent = got.slice(sp);
+  assert.equal(got.length, 22);
+  assert.ok(silent.length === 12, 'the silent half of the clip and the idle after it');
+  for (const f of speech) assert.deepEqual(at(f, 20 + 176, 20 + 80), [200, 200, 200], 'inside the mouth: the painted colour at full weight');
+  const idle = Buffer.alloc(W * H * 3, 10);
+  for (const f of silent) assert.ok(Buffer.compare(Buffer.from(f.rgb), idle) === 0, `silent frame ${f.index} (speaking ${f.speaking}, mouth ${at(f, 20 + 176, 20 + 80)}): the idle video exactly`);
+  a.destroy();
+});

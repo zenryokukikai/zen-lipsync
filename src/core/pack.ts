@@ -43,7 +43,7 @@ export interface PackMeta {
   files: Record<string, { bytes: number; sha256: string }>;
   /** Directory of the model weights relative to the pack (default: the pack itself); packs of one avatar share it. */
   models?: string;
-  /** Version 2: the file holding every source frame's crop and mask (core/frames-pack.ts); also listed in files. */
+  /** Versions 2 and 3: the file holding every source frame's crop and mask (core/frames-pack.ts); also listed in files. */
   frames?: { pack: string; type: string };
   /** What the frame model outputs (core/frame-output.ts): 'delta' (default) or 'absolute' (needs mouth_alpha.u8). */
   frame_output?: FrameOutput;
