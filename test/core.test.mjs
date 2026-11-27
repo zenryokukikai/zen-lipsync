@@ -144,6 +144,10 @@ test('speechMask: faint noise before a line is not speech; the line and a quiet 
   const whisper = maskOf(fixturePcm('whisper-30db.s16'));
   assert.ok(whisper.slice(0, 26).every(Boolean), 'a quiet whisper moves the mouth from its first frame and through its soft end');
   assert.ok(whisper.slice(26).every((v) => !v), 'after the tail the faint rest is not speech');
+  // a pause inside a line where a synthesised voice puts digital silence (first 2.4 s of a line, at 16 kHz): frame 48
+  // reads -11.26 between voiced frames 47 (-6.26) and 50 (-7.25); the mouth must not close for that one frame
+  const pause = maskOf(fixturePcm('pause-digital-silence.s16'));
+  assert.ok(pause.every(Boolean), 'digital silence inside a pause of the line is still speech (no one-frame hole)');
 });
 
 test('speechMask: the window around a voice frame, true silence inside it, edges and empty input', () => {
@@ -158,7 +162,18 @@ test('speechMask: the window around a voice frame, true silence inside it, edges
   const m = of(at(30, [10]));
   assert.deepEqual(m.map(Number).join(''), '000000' + '1'.repeat(15) + '000000000', 'faint sound: 4 frames before the voice frame, 10 after');
   const s = of(at(30, [10], SIL));
-  assert.deepEqual(s.map(Number).join(''), '0'.repeat(10) + '1' + '0'.repeat(19), 'true silence inside the window stays silent');
+  assert.deepEqual(s.map(Number).join(''), '0'.repeat(10) + '1' + '0'.repeat(19), 'true silence before and after the only voice frame stays silent');
+  // true silence between two voice frames, in the window: speech (no hole); outside the window: not
+  const gap = of(at(30, [5, 9], SIL));
+  assert.deepEqual(gap.map(Number).join(''), '00000' + '11111' + '0'.repeat(20), 'silence between two voice frames is filled, around them it is not');
+  const wide = of(at(40, [5, 25], SIL));
+  assert.deepEqual(wide.map(Number).join(''), '00000' + '1'.repeat(11) + '0'.repeat(5) + '1'.repeat(5) + '0'.repeat(14), 'a pause longer than tail + lead keeps its silent middle');
+  const just = of(at(30, [5, 21], SIL));
+  assert.deepEqual(just.map(Number).join(''), '00000' + '1'.repeat(17) + '0'.repeat(8), 'a pause just longer than the windows leaves no one-frame hole');
+  assert.deepEqual(of(at(40, [5, 23], SIL)).map(Number).join(''), '00000' + '1'.repeat(19) + '0'.repeat(16), '3-frame rest of silence is filled');
+  assert.deepEqual(of(at(40, [5, 24], SIL)).map(Number).join(''), '00000' + '1'.repeat(11) + '0000' + '1'.repeat(5) + '0'.repeat(15), '4-frame rest of silence stays');
+  assert.deepEqual(of(at(50, [5, 33])).map(Number).join(''), '0' + '1'.repeat(15) + '0'.repeat(13) + '1'.repeat(15) + '0'.repeat(6), 'faint 13-frame rest stays');
+  assert.deepEqual(of(at(50, [5, 23])).map(Number).join(''), '0' + '1'.repeat(33) + '0'.repeat(16), 'faint 3-frame rest is filled');
   assert.deepEqual(of(at(12, [0, 11])).map(Number).join(''), '1'.repeat(12), 'voice at both ends: the window is clipped to the sentence');
   assert.deepEqual(of(new Array(20).fill(-8)).every(Boolean), true, 'a frame at exactly -8 is voice');
   assert.deepEqual(of(new Array(20).fill(-8.01)).some(Boolean), false, 'faint sound alone is not speech');

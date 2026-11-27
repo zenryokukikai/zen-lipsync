@@ -111,10 +111,14 @@ function halfToFloat(d: Uint16Array): Float32Array {
  */
 const SOUND_FROM = Math.log(1e-5) + 0.5;
 const VOICE_FROM = -8;
-/** A sound frame counts as speech within VOICE_LEAD frames before a voice frame (soft onsets) or VOICE_TAIL after one
- * (soft endings, quiet syllables, a breath between words). */
+/** A frame counts as speech within VOICE_LEAD frames before a voice frame (soft onsets) or VOICE_TAIL after one (soft
+ * endings, quiet syllables, a breath between words): between the line's first and last voice frame always, before and
+ * after them only when it carries sound (SOUND_FROM). A shorter rest than MIN_REST inside the line is speech too. */
 const VOICE_LEAD = 4;
 const VOICE_TAIL = 10;
+/** Inside a line, a rest shorter than this many frames (what is left of a pause just longer than the windows) is speech:
+ * the mouth never drops to the idle frame for 1-3 frames between phrases. */
+const MIN_REST = 4;
 
 /**
  * Which of a sentence's video frames are speech (false: silence or faint noise). The frame model is trained on speech
@@ -134,12 +138,30 @@ export function speechMask(mel: Float32Array, melFrames: number, gather: number[
     }
     level[f] = loudest;
   }
+  // first and last voice frame: inside them (a pause within the line) a frame of the window is speech even when it is
+  // true silence, so the mouth does not snap shut for one frame between two phrases (a voice can put digital silence in
+  // a short pause); before the first and after the last, SOUND_FROM still holds (the noise and padding around a line)
+  let first = -1, last = -1;
+  for (let f = 0; f < frames; f++) {
+    if (level[f]! < VOICE_FROM) continue;
+    if (first < 0) first = f;
+    last = f;
+  }
   const out = new Array<boolean>(frames).fill(false);
   for (let f = 0; f < frames; f++) {
     if (level[f]! < VOICE_FROM) continue;
     for (let g = Math.max(0, f - VOICE_LEAD); g <= Math.min(frames - 1, f + VOICE_TAIL); g++) {
-      if (level[g]! >= SOUND_FROM) out[g] = true;
+      if (level[g]! >= SOUND_FROM || (g > first && g < last)) out[g] = true;
     }
+  }
+  if (first < 0) return out;
+  // inside the line, a rest shorter than MIN_REST frames is speech too
+  for (let f = first + 1; f < last; ) {
+    if (out[f]) { f++; continue; }
+    let e = f;
+    while (e < last && !out[e]) e++;
+    if (e - f < MIN_REST) out.fill(true, f, e);
+    f = e;
   }
   return out;
 }
